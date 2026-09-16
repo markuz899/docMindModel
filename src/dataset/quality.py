@@ -82,7 +82,7 @@ def check_example(example: Example, cfg: QualityConfig | None = None) -> Report:
         issues.append("answerable example without any citation")
 
     # --- grounding --------------------------------------------------------
-    unsupported = unsupported_identifiers(answer, context_text)
+    unsupported = unsupported_identifiers(answer, context_text, question)
     report.metrics["unsupported_identifiers"] = len(unsupported)
     # A refusal has to name the thing that is missing ("no SLA is documented"),
     # so it gets a small budget instead of the strict zero.

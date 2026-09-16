@@ -76,13 +76,20 @@ _REFUSAL_MARKERS = (
     "non posso escludere", "non posso dire", "non compare in nessuna",
     "non descrivono", "non dicono nulla", "non c'e nulla", "non c'è nulla",
     "non ci sono", "va verificato", "non dice nulla", "non e trattat",
+    # observed in real teacher output; see tests/test_refusal_phrasings.py
+    "non permettono di", "non permette di", "non e determinabile",
+    "non è determinabile", "non determinabile", "servirebbero", "mancano i",
+    "mancano le", "mancano gli", "mancano l", "non consentono di",
+    "non sono desumibil", "non si puo stabilire", "non si può stabilire",
     "non è trattat", "non e ricavabile", "non è ricavabile", "non risulta document",
     # english
     "is not stated", "are not described", "do not describe", "cannot be answered",
     "no reference to", "would require", "cannot answer", "none of them",
     "is not enough", "are not enough", "not mentioned", "none of the supplied",
     "none of the provided", "is silent on", "are silent on", "will not guess",
-    "is not covered by", "not documented in",
+    "is not covered by", "not documented in", "cannot be determined from",
+    "is not determinable", "do not allow", "does not allow determining",
+    "these blocks do not", "the blocks do not", "would be needed",
 )
 
 _CONTRADICTION_MARKERS = (
@@ -125,9 +132,14 @@ def extract_identifiers(text: str) -> set[str]:
     return cleaned
 
 
-def unsupported_identifiers(answer: str, context: str) -> set[str]:
-    """Identifiers used in the answer that never appear in the context."""
-    haystack = normalize(context)
+def unsupported_identifiers(answer: str, context: str, question: str = "") -> set[str]:
+    """Identifiers the answer uses that appear neither in the context nor the question.
+
+    The question matters: a developer who asks "why does NOT_ON trigger the
+    relay?" has introduced NOT_ON, and an answer that discusses it is grounded,
+    not inventing. Scoring it as a hallucination discards good data.
+    """
+    haystack = normalize(context) + " " + normalize(question)
     out = set()
     for ident in extract_identifiers(answer):
         needle = normalize(ident)
@@ -200,15 +212,35 @@ def looks_like_refusal(text: str) -> bool:
     return any(marker in t for marker in _REFUSAL_MARKERS)
 
 
-def leads_with_refusal(text: str, window: int = 160) -> bool:
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n")
+
+
+def first_sentence(text: str, min_chars: int = 60, max_chars: int = 400) -> str:
+    """The opening sentence, ignoring breaks too early to be one.
+
+    Abbreviations and decimals produce spurious splits, so a candidate shorter
+    than `min_chars` is extended to the next break.
+    """
+    text = (text or "").strip()
+    position = 0
+    for match in _SENTENCE_END.finditer(text):
+        position = match.start()
+        if position >= min_chars:
+            break
+    if position < min_chars:
+        position = len(text)
+    return text[:position][:max_chars]
+
+
+def leads_with_refusal(text: str) -> bool:
     """Does the answer *open* by declining?
 
-    A real refusal leads with the gap ("the documentation does not contain..."),
-    while a substantive answer that happens to flag a caveat raises it later.
+    A real refusal leads with the gap ("these blocks do not allow..."), while a
+    substantive answer that flags a caveat raises it after saying something.
     That position is what separates "I cannot answer" from "here is the answer,
-    and note this one unknown" -- and neither the words nor the citations do.
+    and note this one unknown" -- neither the words nor the citations do.
     """
-    return looks_like_refusal(normalize(text)[:window])
+    return looks_like_refusal(normalize(first_sentence(text)))
 
 
 def flags_contradiction(text: str) -> bool:

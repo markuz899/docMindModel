@@ -12,3 +12,5 @@ data/generated/*.jsonl
 .env
 vendor/
 data/cache/
+data/generated/*.state.json
+data/generated/*-manifest.json

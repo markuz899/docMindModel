@@ -129,7 +129,7 @@ class SplitConfig(_Base):
 class DedupConfig(_Base):
     enabled: bool = True
     question_similarity: float = 0.82   # token-Jaccard above this = duplicate
-    per_context_limit: int = 4          # max questions kept per identical context
+    per_context_limit: int = 6          # keep >= generation.examples_per_teacher_call
 
 
 class QualityConfig(_Base):

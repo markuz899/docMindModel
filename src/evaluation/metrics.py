@@ -57,7 +57,7 @@ def evaluate_example(example: Example, prediction: str) -> dict:
     refused = looks_like_refusal(prediction)
 
     # 2. groundedness ------------------------------------------------------
-    unsupported = unsupported_identifiers(prediction, context_text)
+    unsupported = unsupported_identifiers(prediction, context_text, example.question)
     grounded = technical_groundedness(prediction, context_text)
 
     # 3. citation correctness ---------------------------------------------

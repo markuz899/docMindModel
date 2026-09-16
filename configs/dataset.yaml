@@ -38,7 +38,10 @@ chunking:
 dedup:
   enabled: true
   question_similarity: 0.82       # token-Jaccard above this = near-duplicate question
-  per_context_limit: 4            # at most N questions kept per identical context
+  # Must be >= generation.examples_per_teacher_call, otherwise every batch has
+  # its tail discarded: at 4 with a batch of 5, one in five examples was thrown
+  # away before it was ever looked at.
+  per_context_limit: 6            # at most N questions kept per identical context
 
 generation:
   # auto = first local CLI that is installed AND authenticated on a subscription
