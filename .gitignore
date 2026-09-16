@@ -11,3 +11,4 @@ data/generated/*.jsonl
 *.gguf
 .env
 vendor/
+data/cache/
