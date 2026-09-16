@@ -1,0 +1,35 @@
+output_dir: artifacts/smoke-adapter
+run_name: docmind-smoke
+seed: 42
+
+num_train_epochs: 1
+max_steps: 4
+learning_rate: 1.0e-3
+lr_scheduler_type: constant
+warmup_ratio: 0.0
+weight_decay: 0.0
+max_grad_norm: 1.0
+optim: adamw_torch
+
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 2
+gradient_checkpointing: false
+
+bf16: false
+fp16: false
+
+logging_steps: 1
+eval_strategy: "no"
+save_strategy: "no"
+save_total_limit: 1
+load_best_model_at_end: false
+metric_for_best_model: eval_loss
+greater_is_better: false
+resume_from_checkpoint: null
+
+completion_only_loss: true
+dataloader_num_workers: 0
+report_to: []
+skip_overlong: true
+empty_cache_steps: 0

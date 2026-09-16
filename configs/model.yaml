@@ -1,0 +1,50 @@
+# Base model + adapter configuration.
+# Every consumer of this file goes through src/config.py -> ModelConfig,
+# so swapping base_model is the only change needed to retarget the pipeline.
+
+base_model: Qwen/Qwen2.5-1.5B-Instruct   # Apache-2.0, 1.54B, Qwen2ForCausalLM
+revision: null                            # pin a commit sha for reproducibility
+trust_remote_code: false                  # Qwen2 is native in Transformers, keep false
+
+max_seq_length: 4096        # question + retrieved context + answer
+dtype: auto                 # auto | float32 | float16 | bfloat16
+device_map: auto            # auto | cpu | mps | cuda | null
+attn_implementation: null   # null | sdpa | eager | flash_attention_2
+
+# 4-bit QLoRA. Requires bitsandbytes (Linux/CUDA). Ignored elsewhere with a warning.
+quantization:
+  enabled: false
+  load_in_4bit: true
+  bnb_4bit_quant_type: nf4
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_use_double_quant: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  task_type: CAUSAL_LM
+  # Qwen2 / Llama attention + MLP projections. Adjust per architecture.
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  modules_to_save: []
+
+generation:
+  max_new_tokens: 512
+  temperature: 0.0      # 0.0 -> greedy, deterministic evaluation
+  top_p: 1.0
+  repetition_penalty: 1.05
+
+export:
+  merged_dir: artifacts/export/merged
+  gguf_dir: artifacts/export/gguf
+  outtype: f16                 # precision of the intermediate GGUF
+  quantizations: [Q4_K_M, Q5_K_M, Q8_0]
+  primary_quantization: Q4_K_M # the build shipped in the DocMind desktop app

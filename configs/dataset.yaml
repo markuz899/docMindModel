@@ -1,0 +1,48 @@
+# Dataset layout, split policy, quality gates and teacher-generation settings.
+
+raw_dir: data/raw
+generated_dir: data/generated
+train_path: data/train/train.jsonl
+validation_path: data/validation/validation.jsonl
+test_path: data/test/test.jsonl
+version: 0.1.0
+
+split:
+  train: 0.8
+  validation: 0.1
+  test: 0.1
+  # Group-aware split: all examples from one project land in the same split,
+  # so the model is measured on documentation it has never seen.
+  group_by: project
+  near_duplicate_threshold: 0.9   # token-Jaccard above this -> near duplicate
+
+quality:
+  min_question_chars: 10
+  max_question_chars: 500
+  min_answer_chars: 20
+  max_answer_chars: 4000
+  max_answer_context_ratio: 1.5   # only applies above long_answer_min_chars
+  long_answer_min_chars: 1200     # below this an answer cannot be "too long"
+  min_groundedness: 0.15          # prose overlap floor (language-sensitive, outliers only)
+  min_technical_groundedness: 0.75 # prose-level drift detector; identifiers are gated separately
+  max_unsupported_identifiers: 0  # invented class/route/table names -> reject
+  max_unsupported_identifiers_refusal: 3  # a refusal may name the missing topic
+  require_citation_when_answerable: true
+
+chunking:
+  min_heading_level: 1
+  max_heading_level: 4
+  min_chunk_chars: 80
+  max_chunk_chars: 4000
+
+generation:
+  provider: mock                  # mock | openai | anthropic
+  model: claude-opus-5
+  temperature: 0.4
+  max_output_tokens: 1500
+  questions_per_context: 2
+  max_contexts: 200
+  context_sizes: [1, 2, 3, 4]
+  distractor_ratio: 0.35          # share of contexts that get irrelevant sources
+  unanswerable_ratio: 0.25        # share of contexts asked for unanswerable questions
+  seed: 7

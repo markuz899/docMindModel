@@ -1,0 +1,291 @@
+# Hand-written seed examples for the acme-identity project.
+# `sources` and `distractors` are resolved against data/raw/projects by
+# src/dataset/build.py, so the context can never drift from the documentation.
+project: acme-identity
+examples:
+  - id: acme-001
+    category: route
+    difficulty: easy
+    answerable: full
+    question: "Come funziona GET /me?"
+    sources: ["04-api-reference.md#GET /me", "05-main-flows.md#Current User Flow"]
+    must_include: ["UserService", "authMiddleware", "displayName"]
+    answer: |
+      `GET /me` restituisce l'utente autenticato e richiede un bearer token valido.
+
+      Percorso documentato:
+      - `authMiddleware` verifica il token e imposta `req.auth.userId` [05-main-flows.md — Current User Flow]
+      - `UserController.getMe` chiama `UserService.getCurrentUser(userId)` [04-api-reference.md — GET /me]
+      - `UserService` carica l'account con `UserRepository.findById` e i campi di profilo con `ProfileService.getProfile`, poi unisce i due record in `CurrentUser` [05-main-flows.md — Current User Flow]
+
+      Nel payload `id`, `email` e `status` provengono dal record account, mentre `displayName`, `avatarUrl` e `locale` provengono dal record di profilo [04-api-reference.md — GET /me].
+
+  - id: acme-002
+    category: how_it_works
+    difficulty: medium
+    answerable: full
+    question: "Come funziona l'autenticazione?"
+    sources: ["02-architecture.md#Authentication flow", "04-api-reference.md#POST /auth/login", "02-architecture.md#AuthService"]
+    must_include: ["authMiddleware", "RS256", "Bearer"]
+    answer: |
+      L'autenticazione è basata su token bearer firmati RS256.
+
+      - Le credenziali arrivano a `POST /auth/login` con `{ email, password }`; in caso di successo la rotta restituisce `accessToken`, `refreshToken` ed `expiresIn` con HTTP 200, altrimenti HTTP 401 `invalid_credentials` [04-api-reference.md — POST /auth/login].
+      - `AuthService` verifica le credenziali, emette access e refresh token e li firma con la coppia di chiavi RS256 caricata all'avvio dal secret store [02-architecture.md — AuthService].
+      - Ogni rotta protetta passa da `authMiddleware`, che legge l'header `Authorization: Bearer <token>`, verifica la firma RS256, controlla il claim `exp` e ricava l'id account dal claim `sub`, impostando `req.auth = { userId, scopes }` [02-architecture.md — Authentication flow].
+
+      Le rotte non fanno mai il parsing del token per conto proprio [02-architecture.md — Authentication flow].
+
+  - id: acme-003
+    category: data_flow
+    difficulty: medium
+    answerable: full
+    question: "Da dove arriva displayName?"
+    sources: ["04-api-reference.md#GET /me", "02-architecture.md#ProfileService", "03-data-model.md#Naming"]
+    must_include: ["ProfileService", "display_name", "user_profiles"]
+    answer: |
+      `displayName` è un campo di profilo, non di account.
+
+      - Nel payload di `GET /me` arriva dal record di profilo insieme a `avatarUrl` e `locale` [04-api-reference.md — GET /me].
+      - È `ProfileService` a possedere i campi di profilo (`displayName`, `avatarUrl`, `locale`, `timezone`) e a leggerli tramite `ProfileRepository` [02-architecture.md — ProfileService].
+      - A livello database la colonna si chiama `display_name` e viene mappata in camelCase dal layer API; la mappatura sta in `ProfileRepository.toDomain` [03-data-model.md — Naming].
+
+      Se la riga di profilo non esiste, `ProfileService` restituisce un profilo di default costruito dalla parte locale dell'email [02-architecture.md — ProfileService].
+
+  - id: acme-004
+    category: database
+    difficulty: easy
+    answerable: full
+    question: "Quale tabella contiene i dati del profilo?"
+    sources: ["03-data-model.md#user_profiles table"]
+    must_include: ["user_profiles"]
+    answer: |
+      La tabella `user_profiles` [03-data-model.md — user_profiles table].
+
+      Contiene `user_id` (uuid, chiave primaria e foreign key verso `users.id`), `display_name`, `avatar_url`, `locale`, `timezone` e `updated_at`. Esiste esattamente una riga di profilo per account, creata in modo lazy alla prima scrittura di profilo [03-data-model.md — user_profiles table].
+
+  - id: acme-005
+    category: dependencies
+    difficulty: medium
+    answerable: full
+    question: "Quale servizio utilizza UserRepository?"
+    sources: ["02-architecture.md#UserService", "02-architecture.md#AuthService", "02-architecture.md#Layers"]
+    must_include: ["UserService", "AuthService"]
+    answer: |
+      Nella documentazione fornita `UserRepository` è usato da due servizi:
+
+      - `UserService`, che se ne serve per la riga di account [02-architecture.md — UserService]
+      - `AuthService`, che lo usa per caricare l'account durante la verifica delle credenziali [02-architecture.md — AuthService]
+
+      I repository sono l'unico codice autorizzato a parlare con il database, quindi i servizi non fanno query dirette [02-architecture.md — Layers].
+
+  - id: acme-006
+    category: architecture
+    difficulty: easy
+    answerable: full
+    question: "Qual è il ruolo di UserService?"
+    sources: ["02-architecture.md#UserService", "02-architecture.md#Layers"]
+    must_include: ["CurrentUser", "ProfileService"]
+    answer: |
+      `UserService` è il punto di ingresso per tutto ciò che riguarda un account utente: compone il record di account e il record di profilo nell'oggetto `CurrentUser` restituito dall'API [02-architecture.md — UserService].
+
+      Dipende da `UserRepository` per la riga di account e da `ProfileService` per i campi di profilo, e non interroga mai direttamente il database [02-architecture.md — UserService]. Questo è coerente con la stratificazione generale: i controller non contengono logica, i servizi contengono le regole di business e solo i repository accedono al database [02-architecture.md — Layers].
+
+  - id: acme-007
+    category: comparison
+    difficulty: medium
+    answerable: full
+    question: "Che differenza c'è tra la tabella users e la tabella user_profiles?"
+    sources: ["03-data-model.md#users table", "03-data-model.md#user_profiles table"]
+    must_include: ["password_hash", "display_name"]
+    answer: |
+      Separano account e profilo.
+
+      - `users` è il record di account: `id` (uuid, chiave primaria), `email` (indice unico), `password_hash`, `status` (`active`, `pending`, `suspended`), `created_at`, `updated_at` [03-data-model.md — users table].
+      - `user_profiles` è il record di profilo: `user_id` come chiave primaria e foreign key verso `users.id`, più `display_name`, `avatar_url`, `locale`, `timezone`, `updated_at` [03-data-model.md — user_profiles table].
+
+      La relazione è uno a uno, ma la riga di profilo viene creata in modo lazy alla prima scrittura, quindi un account può esistere senza la riga corrispondente in `user_profiles` [03-data-model.md — user_profiles table].
+
+  - id: acme-008
+    category: configuration
+    difficulty: easy
+    answerable: full
+    question: "Dove viene configurato il timeout delle query al database?"
+    sources: ["06-configuration.md#Database settings", "06-configuration.md#Sources", "06-configuration.md#HTTP settings"]
+    must_include: ["DB_STATEMENT_TIMEOUT_MS", "5000"]
+    answer: |
+      Con la variabile d'ambiente `DB_STATEMENT_TIMEOUT_MS`, che vale 5000 di default ed è applicata per statement dal pool [06-configuration.md — Database settings].
+
+      La configurazione viene letta all'avvio da `config/loadConfig.ts` a partire dalle variabili d'ambiente, con i default dichiarati in `config/defaults.ts`; non esiste reload a runtime, quindi cambiarla richiede un riavvio [06-configuration.md — Sources].
+
+      Da non confondere con `REQUEST_TIMEOUT_MS` (default 30000), che è il timeout HTTP del server ed è applicato dal server, non dal gateway [06-configuration.md — HTTP settings].
+
+  - id: acme-009
+    category: errors
+    difficulty: medium
+    answerable: full
+    question: "In quali casi il login può fallire?"
+    sources: ["04-api-reference.md#POST /auth/login", "07-errors.md#Authentication errors", "03-data-model.md#users table"]
+    must_include: ["invalid_credentials", "401"]
+    answer: |
+      In base alla documentazione fornita:
+
+      - Credenziali non valide: `POST /auth/login` restituisce HTTP 401 con `{ "error": "invalid_credentials" }`, sia quando l'email è sconosciuta sia quando la password non corrisponde [04-api-reference.md — POST /auth/login] [07-errors.md — Authentication errors].
+      - Rate limit: la rotta è limitata a 10 tentativi per email ogni 15 minuti [04-api-reference.md — POST /auth/login].
+
+      Non documentato: la colonna `status` ammette anche `pending` e `suspended` [03-data-model.md — users table], ma le sezioni fornite non descrivono il comportamento del login per quegli stati, quindi non posso dire se fallisca.
+
+  - id: acme-010
+    category: bug_investigation
+    difficulty: hard
+    answerable: full
+    question: "La /me restituisce un displayName sbagliato. Da dove dovrei iniziare?"
+    sources: ["04-api-reference.md#GET /me", "05-main-flows.md#Current User Flow", "02-architecture.md#ProfileService", "03-data-model.md#Naming", "03-data-model.md#user_profiles table"]
+    must_include: ["ProfileService", "display_name", "default"]
+    answer: |
+      Percorso documentato del campo:
+
+      `GET /me` compone la risposta unendo account e profilo; `displayName` arriva dal record di profilo [04-api-reference.md — GET /me]. Nel flusso, `UserService` carica il profilo tramite `ProfileService.getProfile` e unisce i due record [05-main-flows.md — Current User Flow]. La colonna sorgente è `display_name`, mappata in camelCase da `ProfileRepository.toDomain` [03-data-model.md — Naming].
+
+      Punti di verifica che derivano dalla documentazione (ipotesi, non cause documentate):
+      1. Verificare se esiste la riga in `user_profiles` per quell'account [03-data-model.md — user_profiles table]: se manca, `ProfileService` restituisce un profilo di default con `displayName` derivato dalla parte locale dell'email, il che produce un nome "sbagliato" ma previsto [02-architecture.md — ProfileService].
+      2. Controllare il valore della colonna `display_name` per quell'utente, dato che è la sorgente del campo [03-data-model.md — Naming].
+      3. Controllare la mappatura in `ProfileRepository.toDomain`, unico punto documentato in cui `display_name` diventa `displayName` [03-data-model.md — Naming].
+
+      Non documentato: le sezioni fornite non indicano cache, denormalizzazione o altre copie di `displayName`, quindi non posso escludere né confermare che ne esistano.
+
+  - id: acme-011
+    category: bug_investigation
+    difficulty: hard
+    answerable: none
+    question: "Perché /me restituisce HTTP 500?"
+    sources: ["04-api-reference.md#GET /me", "05-main-flows.md#Current User Flow"]
+    must_not_include: ["NullPointerException", "database timeout", "token scaduto"]
+    answer: |
+      La documentazione fornita descrive il funzionamento normale della rotta ma non contiene informazioni sufficienti per determinare la causa di un HTTP 500.
+
+      Cosa è documentato: `GET /me` richiede un bearer token valido ed è gestita da `UserController.getMe`, che chiama `UserService.getCurrentUser` [04-api-reference.md — GET /me]; il flusso passa da `authMiddleware`, `UserRepository.findById` e `ProfileService.getProfile` [05-main-flows.md — Current User Flow].
+
+      Cosa manca: nessuna delle sezioni fornite elenca gli errori della rotta, i codici 5xx o le condizioni di fallimento dei passaggi. Per rispondere servirebbe la documentazione degli errori o dei log di quella rotta.
+
+  - id: acme-012
+    category: configuration
+    difficulty: hard
+    answerable: partial
+    question: "Qual è la durata dell'access token?"
+    sources: ["06-configuration.md#Token settings", "08-token-lifetimes.md#Access tokens"]
+    tags: ["contradiction"]
+    must_include: ["15", "60"]
+    answer: |
+      La documentazione fornita contiene informazioni contrastanti su questo punto e non è possibile stabilire quale sia corretta.
+
+      - `ACCESS_TOKEN_TTL` controlla la durata dell'access token e vale 15 minuti di default [06-configuration.md — Token settings].
+      - La durata standard di piattaforma per l'access token è indicata in 60 minuti, e il servizio dichiara di seguire lo standard di piattaforma [08-token-lifetimes.md — Access tokens].
+
+      Le due fonti non sono conciliabili con le informazioni disponibili: servirebbe verificare il valore effettivo di `ACCESS_TOKEN_TTL` nell'ambiente o quale delle due pagine è più recente.
+
+  - id: acme-013
+    category: multi_source
+    difficulty: medium
+    answerable: full
+    question: "Cosa succede se un utente non ha una riga di profilo?"
+    sources: ["02-architecture.md#ProfileService", "05-main-flows.md#Current User Flow", "03-data-model.md#user_profiles table"]
+    must_include: ["default", "email"]
+    answer: |
+      Non è un errore: il profilo viene sostituito da un default.
+
+      - La riga in `user_profiles` viene creata in modo lazy alla prima scrittura di profilo, quindi può legittimamente non esistere [03-data-model.md — user_profiles table].
+      - Quando la riga manca, `ProfileService` restituisce un profilo di default costruito dalla parte locale dell'email dell'account [02-architecture.md — ProfileService].
+      - Nel flusso di `GET /me` questo accade al passo di caricamento del profilo, quindi `displayName` ricade sulla parte locale dell'email [05-main-flows.md — Current User Flow].
+
+  - id: acme-014
+    category: how_it_works
+    difficulty: hard
+    answerable: partial
+    question: "Come vengono conservati i refresh token e ogni quanto viene ruotata la chiave RS256?"
+    sources: ["03-data-model.md#sessions table", "02-architecture.md#AuthService", "06-configuration.md#Token settings"]
+    must_include: ["sessions", "refresh_token_hash"]
+    answer: |
+      Sulla conservazione dei refresh token la documentazione è chiara; sulla rotazione della chiave no.
+
+      Documentato: i refresh token sono persistiti nella tabella `sessions`, che contiene `id`, `user_id`, `refresh_token_hash`, `user_agent`, `expires_at`, `revoked_at`. Gli access token non vengono mai salvati e i refresh token sono salvati solo come hash [03-data-model.md — sessions table]. È `AuthService` a persistirli tramite `SessionRepository` [02-architecture.md — AuthService]. La variabile `JWT_KEY_ID` seleziona quale coppia di chiavi RS256 viene usata per la firma [06-configuration.md — Token settings].
+
+      Non documentato: le sezioni fornite non indicano alcuna frequenza o procedura di rotazione della chiave RS256. `JWT_KEY_ID` mostra che esistono più chiavi selezionabili, ma questa è un'osservazione, non una politica di rotazione documentata.
+
+  - id: acme-015
+    category: route
+    difficulty: easy
+    answerable: full
+    question: "Cosa posso aggiornare con PATCH /me?"
+    sources: ["04-api-reference.md#PATCH /me", "05-main-flows.md#Profile Update Flow"]
+    distractors: ["billing-core:04-api-reference.md#POST /invoices", "mesh-gateway:07-deployment.md#Kubernetes", "docsync-platform:02-architecture.md#Storage"]
+    must_include: ["displayName", "avatarUrl", "locale", "timezone"]
+    answer: |
+      Solo campi di profilo: un qualsiasi sottoinsieme di `displayName`, `avatarUrl`, `locale`, `timezone` [04-api-reference.md — PATCH /me].
+
+      I campi di account come `email` e `status` non sono modificabili da questa rotta [04-api-reference.md — PATCH /me]. La scrittura passa da `ProfileService.updateProfile`, che usa `ProfileRepository.upsert` creando la riga se non esiste, e la risposta viene ricostruita chiamando di nuovo `UserService.getCurrentUser` [05-main-flows.md — Profile Update Flow].
+
+  - id: acme-016
+    category: errors
+    difficulty: easy
+    answerable: full
+    question: "Which HTTP status is returned when the caller lacks the required scope?"
+    sources: ["07-errors.md#Authorisation errors", "04-api-reference.md#GET /users/:id"]
+    must_include: ["403", "insufficient_scope"]
+    answer: |
+      HTTP 403 with the error code `insufficient_scope` [07-errors.md — Authorisation errors].
+
+      The documented example is calling `GET /users/:id` without the `users:read` scope, which is the scope that route requires [07-errors.md — Authorisation errors] [04-api-reference.md — GET /users/:id].
+
+  - id: acme-017
+    category: how_it_works
+    difficulty: medium
+    answerable: full
+    question: "How are passwords verified during login?"
+    sources: ["05-main-flows.md#Login Flow", "03-data-model.md#users table"]
+    must_include: ["argon2id", "password_hash"]
+    answer: |
+      The password is verified against the stored `password_hash` using argon2id [05-main-flows.md — Login Flow].
+
+      The flow is: `POST /auth/login` reaches `AuthController.login`, `AuthService.authenticate` loads the account by email through `UserRepository`, and only then the password is checked [05-main-flows.md — Login Flow]. The `password_hash` column lives on the `users` table [03-data-model.md — users table].
+
+  - id: acme-018
+    category: integrations
+    difficulty: medium
+    answerable: partial
+    question: "Con quali sistemi esterni parla Acme Identity?"
+    sources: ["01-overview.md#Scope", "02-architecture.md#AuthService", "01-overview.md#Purpose"]
+    must_include: ["OIDC", "secret store"]
+    answer: |
+      Documentato, in modo parziale:
+
+      - Il servizio gestisce l'autenticazione con password e OIDC, quindi è previsto un provider OIDC esterno [01-overview.md — Scope].
+      - `AuthService` carica la coppia di chiavi RS256 all'avvio dal secret store [02-architecture.md — AuthService].
+      - Espone la propria API REST dietro il gateway interno [01-overview.md — Purpose].
+
+      Non documentato: le sezioni fornite non nominano quale provider OIDC o quale secret store vengano usati, né altre integrazioni. Non posso ricavarlo da qui.
+
+  - id: acme-019
+    category: route
+    difficulty: medium
+    answerable: full
+    question: "Qual è la differenza tra GET /me e GET /users/:id?"
+    sources: ["04-api-reference.md#GET /me", "04-api-reference.md#GET /users/:id"]
+    must_include: ["users:read", "bearer"]
+    answer: |
+      Stessa forma di risposta, destinatari diversi.
+
+      - `GET /me` restituisce l'utente autenticato e richiede soltanto un bearer token valido [04-api-reference.md — GET /me].
+      - `GET /users/:id` è una rotta interna, richiede lo scope `users:read` e restituisce la stessa forma di `GET /me` per un id account arbitrario; è usata dagli altri servizi [04-api-reference.md — GET /users/:id].
+
+  - id: acme-020
+    category: architecture
+    difficulty: easy
+    answerable: full
+    question: "Il servizio mantiene sessioni in memoria?"
+    sources: ["01-overview.md#Runtime", "03-data-model.md#sessions table"]
+    must_include: ["stateless", "bearer"]
+    answer: |
+      No. Il servizio gira come container stateless e le sessioni non sono tenute in memoria: ogni richiesta viene autenticata a partire dal bearer token, quindi qualsiasi replica può servire qualsiasi richiesta [01-overview.md — Runtime].
+
+      L'unico stato di sessione persistito sono i refresh token nella tabella `sessions`, e solo come hash [03-data-model.md — sessions table].

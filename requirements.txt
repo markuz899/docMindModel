@@ -1,0 +1,21 @@
+# Core training / inference stack (CPU, Apple Silicon MPS, CUDA)
+torch>=2.2
+transformers>=4.44
+datasets>=2.20
+peft>=0.11
+accelerate>=0.33
+safetensors>=0.4
+pyyaml>=6.0
+pydantic>=2.6
+
+# Dev / test
+pytest>=8.0
+
+# --- Optional, install only where supported ---
+# QLoRA 4-bit quantized training. Linux + CUDA only (no macOS arm64 wheels).
+#   pip install bitsandbytes>=0.43
+# GGUF conversion (llama.cpp's convert_hf_to_gguf.py also needs this):
+#   pip install sentencepiece gguf
+# Teacher providers for dataset distillation (pick what you use):
+#   pip install openai>=1.40
+#   pip install anthropic>=0.34

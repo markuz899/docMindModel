@@ -1,0 +1,221 @@
+project: docsync-platform
+examples:
+  - id: docs-001
+    category: bug_investigation
+    difficulty: hard
+    answerable: full
+    question: "L'utente non riceve il documento. Da dove parto?"
+    sources: ["08-troubleshooting.md#The recipient did not receive the document", "04-api-reference.md#GET /documents/{id}", "04-api-reference.md#GET /documents/{id}/deliveries", "03-data-model.md#deliveries"]
+    must_include: ["rendered", "deliveries", "errorCode"]
+    answer: |
+      La documentazione descrive esattamente questo percorso di indagine.
+
+      1. Controllare prima lo stato della richiesta con `GET /documents/{id}` [08-troubleshooting.md — The recipient did not receive the document], che restituisce lo stato corrente e, una volta renderizzato, l'id del documento e un URL di download a breve scadenza [04-api-reference.md — GET /documents/{id}].
+      2. Se lo stato è `rendered` ma non esiste nessuna riga di delivery, il passo di consegna non è mai stato invocato [08-troubleshooting.md — The recipient did not receive the document].
+      3. Se invece le delivery esistono, `GET /documents/{id}/deliveries` mostra provider, stato, `attemptNumber` e `errorCode` di ogni tentativo, dal più recente [04-api-reference.md — GET /documents/{id}/deliveries] [08-troubleshooting.md — The recipient did not receive the document].
+
+      Contesto utile per leggere il risultato: lo stato di una delivery è uno tra `queued`, `sent`, `accepted`, `rejected`, `bounced` [03-data-model.md — deliveries].
+
+  - id: docs-002
+    category: bug_investigation
+    difficulty: hard
+    answerable: full
+    question: "Il provider non viene mai chiamato. Perché?"
+    sources: ["08-troubleshooting.md#A provider was never called", "02-architecture.md#ProviderRouter", "06-configuration.md#Channel routing"]
+    must_include: ["unsupported_channel", "ProviderRouter", "docsync.channels"]
+    answer: |
+      La causa documentata è il routing del canale.
+
+      `ProviderRouter` rifiuta la delivery prima di chiamare qualsiasi provider quando il canale non ha una mappatura in `docsync.channels`; in quel caso la delivery viene registrata con `unsupported_channel` e non è presente nessun `provider_message_id` [08-troubleshooting.md — A provider was never called].
+
+      Coerentemente, se il canale non ha mappatura la delivery viene rifiutata subito con `unsupported_channel` e nessun provider viene chiamato [02-architecture.md — ProviderRouter]. La mappatura è `docsync.channels`, che associa un nome di canale a un bean provider, ad esempio `email: emailDeliveryProvider`; un canale assente dalla mappa è non supportato a runtime [06-configuration.md — Channel routing].
+
+      Da verificare: il valore del campo `channel` della richiesta e la presenza della chiave corrispondente in `docsync.channels`. La tabella di routing è costruita all'avvio dalla configurazione, quindi una modifica non applicata a runtime è un'ipotesi coerente ma non confermata dalle sezioni fornite [02-architecture.md — ProviderRouter].
+
+  - id: docs-003
+    category: architecture
+    difficulty: medium
+    answerable: full
+    question: "Qual è il ruolo di DeliveryService?"
+    sources: ["02-architecture.md#DeliveryService", "02-architecture.md#ProviderRouter"]
+    must_include: ["DeliveryProvider", "EmailDeliveryProvider", "channel"]
+    answer: |
+      `DeliveryService` sceglie un provider per ogni delivery e lo chiama attraverso l'interfaccia `DeliveryProvider` [02-architecture.md — DeliveryService].
+
+      Le implementazioni documentate sono `EmailDeliveryProvider`, `PecDeliveryProvider` e `PortalDeliveryProvider`, e la selezione è guidata dal campo `channel` della richiesta, risolto da `ProviderRouter` [02-architecture.md — DeliveryService]. `ProviderRouter` costruisce la tabella di routing all'avvio dalla configurazione [02-architecture.md — ProviderRouter].
+
+  - id: docs-004
+    category: configuration
+    difficulty: medium
+    answerable: full
+    question: "Dove viene configurato il timeout di rendering?"
+    sources: ["06-configuration.md#Render settings", "06-configuration.md#Property sources"]
+    must_include: ["docsync.render.timeout-ms", "20000"]
+    answer: |
+      Con la proprietà `docsync.render.timeout-ms`, default 20000, che limita un singolo render [06-configuration.md — Render settings].
+
+      La configurazione sta in `application.yaml`, viene sovrascritta per ambiente da `application-{profile}.yaml` e dalle variabili d'ambiente; vale il relaxed binding di Spring, quindi la stessa proprietà si imposta anche come `DOCSYNC_RENDER_TIMEOUT_MS` [06-configuration.md — Property sources].
+
+  - id: docs-005
+    category: errors
+    difficulty: medium
+    answerable: full
+    question: "Quali errori di rendering sono previsti e vengono ritentati?"
+    sources: ["07-errors.md#Render errors", "02-architecture.md#RenderService"]
+    must_include: ["render_timeout", "template_render_error", "render_failed"]
+    answer: |
+      Sono documentati due errori di render e nessuno dei due viene ritentato automaticamente.
+
+      - `render_timeout`, quando il render supera `docsync.render.timeout-ms` [07-errors.md — Render errors].
+      - `template_render_error`, quando il motore di template solleva un errore [07-errors.md — Render errors].
+
+      Entrambi portano la richiesta in `render_failed` e nessuno dei due è ritentato automaticamente [07-errors.md — Render errors]. Questo è coerente con `RenderService`, che è sincrono e limitato: un render oltre il timeout viene interrotto e la richiesta marcata `render_failed` [02-architecture.md — RenderService].
+
+  - id: docs-006
+    category: data_flow
+    difficulty: medium
+    answerable: full
+    question: "Dove finisce il PDF dopo essere stato generato?"
+    sources: ["02-architecture.md#Storage", "05-main-flows.md#Document production flow", "03-data-model.md#documents"]
+    must_include: ["StorageService", "storage_key", "S3"]
+    answer: |
+      Finisce su S3, sotto la chiave `documents/{tenantId}/{documentId}.pdf`, e solo `StorageService` tocca il client S3 [02-architecture.md — Storage].
+
+      Nel flusso, dopo il render il PDF viene sigillato da `SignatureService` e poi caricato da `StorageService`, che scrive la riga in `documents` [05-main-flows.md — Document production flow]. La riga contiene `id`, `request_id`, `storage_key`, `checksum_sha256`, `signed`, `size_bytes`, `created_at` [03-data-model.md — documents].
+
+      Le chiavi degli oggetti non vengono mai riusate: un nuovo render produce un nuovo document id [02-architecture.md — Storage].
+
+  - id: docs-007
+    category: database
+    difficulty: easy
+    answerable: full
+    question: "Quale tabella tiene traccia dei tentativi di consegna?"
+    sources: ["03-data-model.md#deliveries"]
+    must_include: ["deliveries", "attempt_number"]
+    answer: |
+      La tabella `deliveries` [03-data-model.md — deliveries].
+
+      Contiene `id`, `document_id`, `provider`, `recipient`, `status`, `provider_message_id`, `error_code`, `attempt_number`, `created_at` e `updated_at`, con `status` tra `queued`, `sent`, `accepted`, `rejected`, `bounced` [03-data-model.md — deliveries].
+
+  - id: docs-008
+    category: multi_source
+    difficulty: hard
+    answerable: full
+    question: "Quando una consegna viene ritentata?"
+    sources: ["05-main-flows.md#Retry flow", "07-errors.md#Delivery errors", "03-data-model.md#deliveries"]
+    must_include: ["retryable", "bounced", "provider_unavailable"]
+    answer: |
+      Solo in base al codice di errore riportato dal provider.
+
+      - Una delivery in stato `rejected` viene ritentata soltanto se il provider ha riportato un codice di errore retryable; i retry creano una nuova riga in `deliveries` con `attempt_number` incrementato [05-main-flows.md — Retry flow].
+      - Una delivery `bounced` non viene mai ritentata [05-main-flows.md — Retry flow].
+      - Sul lato errori: `recipient_invalid` è definitivo, `provider_unavailable` è retryable e `provider_rejected` è retryable solo quando il provider marca il codice come retryable [07-errors.md — Delivery errors].
+
+      Gli stati possibili di una delivery sono `queued`, `sent`, `accepted`, `rejected`, `bounced` [03-data-model.md — deliveries].
+
+  - id: docs-009
+    category: how_it_works
+    difficulty: medium
+    answerable: full
+    question: "Come funziona la firma dei documenti?"
+    sources: ["02-architecture.md#SignatureService", "05-main-flows.md#Document production flow"]
+    must_include: ["PAdES", "HSM"]
+    answer: |
+      `SignatureService` applica un sigillo PAdES usando il certificato caricato dall'HSM all'avvio; se il certificato non può essere caricato l'applicazione si rifiuta di partire [02-architecture.md — SignatureService].
+
+      La firma avviene dopo il rendering e prima dello storage [02-architecture.md — SignatureService], come conferma l'ordine del flusso: render, sigillo, upload e scrittura della riga in `documents` [05-main-flows.md — Document production flow].
+
+  - id: docs-010
+    category: route
+    difficulty: easy
+    answerable: full
+    question: "Cosa restituisce POST /documents?"
+    sources: ["04-api-reference.md#POST /documents", "05-main-flows.md#Document production flow"]
+    distractors: ["billing-core:06-configuration.md#Queue settings", "acme-identity:03-data-model.md#sessions table", "mesh-gateway:02-architecture.md#RateLimiter", "acme-identity:01-overview.md#Runtime"]
+    must_include: ["202", "received"]
+    answer: |
+      Restituisce HTTP 202 con `{ requestId, status: "received" }`; il lavoro prosegue in modo asincrono [04-api-reference.md — POST /documents].
+
+      Il body accettato è `{ templateCode, payload, channel, recipient }` [04-api-reference.md — POST /documents]. Subito dopo, la richiesta viene salvata in `document_requests` con stato `received` e messa in coda, e un worker la porta in `rendering` [05-main-flows.md — Document production flow].
+
+  - id: docs-011
+    category: comparison
+    difficulty: medium
+    answerable: full
+    question: "Qual è la differenza tra document request, document e delivery?"
+    sources: ["01-overview.md#Vocabulary", "03-data-model.md#document_requests", "03-data-model.md#documents"]
+    must_include: ["document request", "delivery"]
+    answer: |
+      Sono tre entità distinte con cardinalità diverse [01-overview.md — Vocabulary]:
+
+      - Una *document request* è ciò che il chiamante invia; è tracciata in `document_requests` con `template_code`, `payload_json`, `channel` e uno stato tra `received`, `rendering`, `render_failed`, `rendered`, `delivering`, `delivered`, `failed` [01-overview.md — Vocabulary] [03-data-model.md — document_requests].
+      - Un *document* è l'artefatto renderizzato, una riga in `documents` per ogni render riuscito [01-overview.md — Vocabulary] [03-data-model.md — documents].
+      - Una *delivery* è un singolo tentativo di consegna a un destinatario tramite un provider, e un documento può averne diverse [01-overview.md — Vocabulary].
+
+  - id: docs-012
+    category: bug_investigation
+    difficulty: hard
+    answerable: none
+    question: "Il rendering è diventato molto lento nell'ultima settimana. Qual è la causa?"
+    sources: ["02-architecture.md#RenderService", "06-configuration.md#Render settings"]
+    must_not_include: ["template troppo grande", "S3 lento", "memoria"]
+    answer: |
+      Le sezioni fornite non contengono informazioni sufficienti per determinare la causa di un degrado di performance.
+
+      Cosa è documentato: il rendering è sincrono e limitato da `docsync.render.timeout-ms` (default 20000), oltre il quale viene interrotto e la richiesta marcata `render_failed` [02-architecture.md — RenderService] [06-configuration.md — Render settings]. Esiste anche un limite di payload, `docsync.render.max-payload-kb`, default 512 [06-configuration.md — Render settings].
+
+      Cosa manca: nelle sezioni fornite non ci sono metriche, obiettivi di latenza, dati storici né cause note di rallentamento. Per rispondere servirebbero la documentazione delle metriche o i dati di monitoraggio del periodo.
+
+  - id: docs-013
+    category: errors
+    difficulty: medium
+    answerable: full
+    question: "Cosa succede se il templateCode non esiste?"
+    sources: ["07-errors.md#Request errors", "03-data-model.md#templates", "02-architecture.md#RenderService"]
+    must_include: ["unknown_template", "404", "active"]
+    answer: |
+      La richiesta viene rifiutata con `unknown_template` e HTTP 404 quando il `templateCode` non ha una riga attiva nella tabella `templates` [07-errors.md — Request errors].
+
+      Attenzione alla condizione esatta: solo le righe con `active = true` possono essere risolte da `RenderService` [03-data-model.md — templates], quindi un template esistente ma disattivato ricade nello stesso errore. `RenderService` risolve il template per `templateCode` prima di fondere il payload [02-architecture.md — RenderService].
+
+  - id: docs-014
+    category: dependencies
+    difficulty: easy
+    answerable: full
+    question: "Which component talks to S3?"
+    sources: ["02-architecture.md#Storage", "06-configuration.md#Storage settings"]
+    must_include: ["StorageService"]
+    answer: |
+      `StorageService` is the only component that touches the S3 client [02-architecture.md — Storage].
+
+      Rendered documents are stored under `documents/{tenantId}/{documentId}.pdf`, and object keys are never reused: a re-render produces a new document id [02-architecture.md — Storage]. The target bucket is configured with `docsync.storage.bucket`, which is required [06-configuration.md — Storage settings].
+
+  - id: docs-015
+    category: how_it_works
+    difficulty: medium
+    answerable: partial
+    question: "Quanto dura l'URL di download e come viene generato?"
+    sources: ["06-configuration.md#Storage settings", "04-api-reference.md#GET /documents/{id}"]
+    must_include: ["download-url-ttl-seconds", "900"]
+    answer: |
+      Sulla durata la documentazione risponde, sulla generazione no.
+
+      Documentato: `docsync.storage.download-url-ttl-seconds` vale 900 di default e controlla la durata dell'URL di download restituito da `GET /documents/{id}` [06-configuration.md — Storage settings]. La rotta restituisce l'id del documento e un URL di download a breve scadenza una volta che il documento è stato renderizzato [04-api-reference.md — GET /documents/{id}].
+
+      Non documentato: le sezioni fornite non descrivono come l'URL venga firmato o generato, né quale componente lo produca. Non posso dedurlo da qui.
+
+  - id: docs-016
+    category: data_flow
+    difficulty: hard
+    answerable: full
+    question: "Come si passa da uno stato received a uno stato delivered?"
+    sources: ["03-data-model.md#document_requests", "05-main-flows.md#Document production flow", "05-main-flows.md#Delivery flow"]
+    must_include: ["rendering", "rendered", "DeliveryStatusListener"]
+    answer: |
+      Gli stati previsti per una richiesta sono `received`, `rendering`, `render_failed`, `rendered`, `delivering`, `delivered`, `failed` [03-data-model.md — document_requests].
+
+      Percorso documentato:
+      1. `POST /documents` salva la riga con stato `received`; la richiesta viene messa in coda e un worker la porta in `rendering` [05-main-flows.md — Document production flow].
+      2. `RenderService` risolve il template attivo e produce il PDF, `SignatureService` lo sigilla, `StorageService` lo carica e scrive la riga in `documents`; la richiesta passa a `rendered` [05-main-flows.md — Document production flow].
+      3. Una volta `rendered` viene invocata `DeliveryService.deliver`; `ProviderRouter` risolve il canale, il provider viene chiamato e la riga in `deliveries` passa da `queued` a `sent` [05-main-flows.md — Delivery flow].
+      4. Il provider richiama `POST /providers/callbacks/{provider}` e `DeliveryStatusListener` aggiorna la delivery ad `accepted`, `rejected` o `bounced` [05-main-flows.md — Delivery flow].

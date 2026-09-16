@@ -1,0 +1,216 @@
+project: billing-core
+examples:
+  - id: bill-001
+    category: integrations
+    difficulty: easy
+    answerable: full
+    question: "Quale servizio comunica con Stripe?"
+    sources: ["02-architecture.md#StripeGateway", "02-architecture.md#PaymentService", "01-overview.md#Purpose"]
+    must_include: ["StripeGateway", "PaymentService"]
+    answer: |
+      `StripeGateway` è l'unico componente che effettua chiamate HTTP verso Stripe: espone `create_payment_intent`, `capture`, `refund` e `retrieve_event`, aggiunge la chiave di idempotenza e traduce gli errori Stripe in errori di dominio [02-architecture.md — StripeGateway].
+
+      `PaymentService` non usa mai l'SDK direttamente: passa sempre da `StripeGateway` [02-architecture.md — StripeGateway] [02-architecture.md — PaymentService].
+
+      A livello di piattaforma, Billing Core è l'unico servizio autorizzato a parlare con il payment provider; gli altri servizi chiedono a Billing Core [01-overview.md — Purpose].
+
+  - id: bill-002
+    category: errors
+    difficulty: hard
+    answerable: full
+    question: "In quali casi l'emissione di una fattura può fallire?"
+    sources: ["07-errors.md#Issuing failures", "04-api-reference.md#POST /invoices/{id}/issue", "05-main-flows.md#Invoice issuing flow"]
+    must_include: ["invoice_not_draft", "409", "draft"]
+    answer: |
+      Secondo la documentazione fornita l'emissione può fallire prima di qualsiasi addebito, in tre modi:
+
+      1. La fattura non è in stato `draft`: la rotta risponde HTTP 409 `invoice_not_draft` [04-api-reference.md — POST /invoices/{id}/issue] [07-errors.md — Issuing failures].
+      2. L'allocazione del numero va in conflitto, per violazione dell'indice unico su `invoices.number` [07-errors.md — Issuing failures].
+      3. Il render del PDF fallisce e il job viene ritentato dal worker [07-errors.md — Issuing failures].
+
+      In tutti i casi un'emissione fallita lascia la fattura in `draft` [07-errors.md — Issuing failures]. Il passaggio di stato e l'assegnazione del numero avvengono in `InvoiceService.issue`, prima che venga messo in coda il job `charge_invoice` [05-main-flows.md — Invoice issuing flow].
+
+  - id: bill-003
+    category: data_flow
+    difficulty: medium
+    answerable: full
+    question: "Da dove arriva il numero di fattura?"
+    sources: ["03-data-model.md#invoices", "05-main-flows.md#Invoice issuing flow"]
+    must_include: ["assign_number", "unique"]
+    answer: |
+      Viene assegnato al momento dell'emissione, non alla creazione.
+
+      - La colonna `number` della tabella `invoices` è unica e viene assegnata all'emissione, mai alla creazione [03-data-model.md — invoices].
+      - Nel flusso di emissione è `InvoiceRepository.assign_number` ad allocare il numero successivo, dopo il controllo dello stato e prima del render del PDF [05-main-flows.md — Invoice issuing flow].
+
+  - id: bill-004
+    category: database
+    difficulty: medium
+    answerable: full
+    question: "Dove viene tenuto il conteggio dei tentativi di pagamento?"
+    sources: ["03-data-model.md#payment_attempts", "02-architecture.md#PaymentService"]
+    must_include: ["payment_attempts", "attempt_number"]
+    answer: |
+      Nella tabella `payment_attempts`: una riga per ogni tentativo di addebito, con `id`, `invoice_id`, `provider_intent_id`, `status`, `error_code`, `attempt_number`, `created_at`. Il numero di retry corrente di una fattura è il numero di righe per quella fattura [03-data-model.md — payment_attempts].
+
+      Lo stato di retry sta esplicitamente nella tabella e non in memoria [02-architecture.md — PaymentService].
+
+  - id: bill-005
+    category: configuration
+    difficulty: easy
+    answerable: full
+    question: "Dove viene configurato il timeout verso Stripe?"
+    sources: ["06-configuration.md#Provider settings", "06-configuration.md#Loading"]
+    must_include: ["STRIPE_TIMEOUT_MS", "8000"]
+    answer: |
+      Con la variabile d'ambiente `STRIPE_TIMEOUT_MS`, default 8000, passata all'SDK Stripe da `StripeGateway` [06-configuration.md — Provider settings].
+
+      La configurazione è un oggetto pydantic `Settings` in `billing/config.py` popolato dalle variabili d'ambiente; le variabili richieste mancanti bloccano l'avvio [06-configuration.md — Loading]. Da non confondere con `STRIPE_MAX_NETWORK_RETRIES` (default 2), che è gestito dall'SDK stesso [06-configuration.md — Provider settings].
+
+  - id: bill-006
+    category: how_it_works
+    difficulty: medium
+    answerable: full
+    question: "Come viene garantita l'idempotenza dei webhook?"
+    sources: ["03-data-model.md#webhook_events", "05-main-flows.md#Webhook flow", "07-errors.md#Webhook failures"]
+    must_include: ["provider_event_id", "unique"]
+    answer: |
+      Tramite l'indice unico su `provider_event_id` nella tabella `webhook_events`.
+
+      - Ogni evento Stripe ricevuto viene salvato in `webhook_events` con `provider_event_id` unico, `type`, `payload`, `processed_at`; è proprio quell'indice unico a rendere idempotente l'elaborazione [03-data-model.md — webhook_events].
+      - `WebhookHandler.receive` verifica la firma e inserisce l'evento; un `provider_event_id` duplicato viene ignorato [05-main-flows.md — Webhook flow].
+      - Un webhook già presente viene comunque confermato con HTTP 200 e scartato [07-errors.md — Webhook failures].
+
+  - id: bill-007
+    category: bug_investigation
+    difficulty: hard
+    answerable: full
+    question: "POST /invoices/{id}/issue restituisce 409. Cosa dovrei controllare?"
+    sources: ["04-api-reference.md#POST /invoices/{id}/issue", "07-errors.md#Domain errors", "03-data-model.md#invoices"]
+    must_include: ["invoice_not_draft", "draft"]
+    answer: |
+      Il 409 documentato per questa rotta è uno solo: `invoice_not_draft`, restituito quando la fattura non è in stato `draft` [04-api-reference.md — POST /invoices/{id}/issue] [07-errors.md — Domain errors].
+
+      Verifiche che derivano dalla documentazione:
+      1. Controllare lo stato corrente della fattura: i valori possibili sono `draft`, `open`, `paid`, `uncollectible`, `void`, e solo `draft` può essere emessa [03-data-model.md — invoices] [04-api-reference.md — POST /invoices/{id}/issue].
+      2. Verificare se l'emissione era già stata eseguita: l'emissione porta la fattura a `open`, quindi una seconda chiamata sulla stessa fattura ricadrebbe nello stesso 409 [04-api-reference.md — POST /invoices/{id}/issue].
+
+      Nota: `invoice_not_payable` è anch'esso HTTP 409, ma la documentazione lo associa all'addebito di una fattura non `open`, non a questa rotta [07-errors.md — Domain errors].
+
+  - id: bill-008
+    category: errors
+    difficulty: medium
+    answerable: full
+    question: "Quali errori del provider fanno scattare un retry?"
+    sources: ["07-errors.md#Provider errors", "06-configuration.md#Retry settings"]
+    must_include: ["ProviderRateLimited", "ProviderUnavailable", "ProviderCardError"]
+    answer: |
+      Sono retryable `ProviderRateLimited` e `ProviderUnavailable`, e ciascun tentativo consuma uno dei `PAYMENT_MAX_ATTEMPTS` [07-errors.md — Provider errors].
+
+      `ProviderCardError` invece è definitivo: il tentativo viene registrato e non viene pianificato nessun retry [07-errors.md — Provider errors].
+
+      I parametri sono `PAYMENT_MAX_ATTEMPTS` (default 4) e `PAYMENT_RETRY_BACKOFF_HOURS` (default `[1, 24, 72]`), quindi il secondo tentativo avviene un'ora dopo il primo, il terzo un giorno dopo e il quarto tre giorni dopo [06-configuration.md — Retry settings].
+
+  - id: bill-009
+    category: architecture
+    difficulty: medium
+    answerable: full
+    question: "Perché ogni consumer della coda deve essere idempotente?"
+    sources: ["02-architecture.md#Queue", "01-overview.md#Deployment"]
+    must_include: ["at-least once", "billing-worker"]
+    answer: |
+      Perché la coda è at-least once: ogni consumer deve essere idempotente [02-architecture.md — Queue].
+
+      Il lavoro lungo viene spinto su Redis e consumato da `billing-worker`; in coda finiscono l'emissione delle fatture, le email di dunning e i replay dei webhook [02-architecture.md — Queue]. `billing-worker` è uno dei due workload avviati dalla stessa immagine, insieme all'API HTTP, e condivide la stessa configurazione [01-overview.md — Deployment].
+
+  - id: bill-010
+    category: bug_investigation
+    difficulty: hard
+    answerable: none
+    question: "Una fattura è rimasta in stato open da tre giorni. Qual è la causa?"
+    sources: ["03-data-model.md#invoices", "05-main-flows.md#Charge flow"]
+    must_not_include: ["carta scaduta", "Redis down", "bug"]
+    answer: |
+      Le sezioni fornite non contengono informazioni sufficienti per stabilire la causa.
+
+      Cosa è documentato: `open` è uno degli stati previsti per una fattura [03-data-model.md — invoices] e, dopo l'emissione, l'addebito passa da `PaymentService.charge`, che scrive la riga in `payment_attempts` prima che la chiamata ritorni, mentre l'esito arriva in modo asincrono via webhook [05-main-flows.md — Charge flow].
+
+      Cosa manca: nelle sezioni fornite non c'è nulla su tempi attesi, scadenze, politiche di sollecito o condizioni che facciano restare una fattura in `open`. Per rispondere servirebbero la documentazione dei retry o quella degli stati di pagamento.
+
+  - id: bill-011
+    category: multi_source
+    difficulty: hard
+    answerable: full
+    question: "Cosa succede dalla chiamata a issue fino alla fattura pagata?"
+    sources: ["05-main-flows.md#Invoice issuing flow", "05-main-flows.md#Charge flow", "05-main-flows.md#Webhook flow"]
+    must_include: ["charge_invoice", "payment_intent.succeeded", "idempotency"]
+    answer: |
+      Il percorso documentato attraversa tre flussi.
+
+      1. Emissione: `POST /invoices/{id}/issue` chiama `InvoiceService.issue`, che verifica lo stato `draft`, alloca il numero con `InvoiceRepository.assign_number`, renderizza e carica il PDF salvando `pdf_url`, e mette in coda il job `charge_invoice` [05-main-flows.md — Invoice issuing flow].
+      2. Addebito: `billing-worker` prende il job e chiama `PaymentService.charge`, che carica fattura e tentativi precedenti, chiama `StripeGateway.create_payment_intent` con una idempotency key derivata da `invoice_id` e `attempt_number`, e scrive la riga in `payment_attempts` prima che la chiamata ritorni [05-main-flows.md — Invoice issuing flow] [05-main-flows.md — Charge flow].
+      3. Conferma: Stripe conferma in modo asincrono; l'evento arriva su `POST /webhooks/stripe`, viene inserito in `webhook_events` e messo in coda come `process_event`. Il worker mappa `payment_intent.succeeded` sullo stato `paid` della fattura e `payment_intent.payment_failed` su una nuova decisione di retry [05-main-flows.md — Charge flow] [05-main-flows.md — Webhook flow].
+
+  - id: bill-012
+    category: route
+    difficulty: easy
+    answerable: full
+    question: "Creare una fattura addebita subito il cliente?"
+    sources: ["04-api-reference.md#POST /invoices", "04-api-reference.md#POST /invoices/{id}/issue"]
+    distractors: ["acme-identity:07-errors.md#Validation errors", "mesh-gateway:04-configuration.md#TLS", "docsync-platform:03-data-model.md#templates"]
+    must_include: ["draft", "201"]
+    answer: |
+      No. `POST /invoices` crea una fattura in stato `draft` e restituisce HTTP 201; la creazione non addebita nulla [04-api-reference.md — POST /invoices].
+
+      L'addebito parte con l'emissione: `POST /invoices/{id}/issue` porta la fattura da `draft` a `open`, assegna il numero, renderizza il PDF e mette in coda il primo tentativo di pagamento, rispondendo HTTP 202 [04-api-reference.md — POST /invoices/{id}/issue].
+
+  - id: bill-013
+    category: comparison
+    difficulty: medium
+    answerable: full
+    question: "Qual è la differenza tra InvoiceService e PaymentService?"
+    sources: ["02-architecture.md#Components", "02-architecture.md#PaymentService"]
+    must_include: ["InvoiceService", "PaymentService", "uncollectible"]
+    answer: |
+      Hanno responsabilità diverse nella stessa catena.
+
+      - `InvoiceService` costruisce le fatture a partire da abbonamenti e record di utilizzo [02-architecture.md — Components].
+      - `PaymentService` esegue addebiti e rimborsi [02-architecture.md — Components] e decide quando addebitare, quanti retry fare e quando marcare una fattura come `uncollectible`; si appoggia a `StripeGateway` per la chiamata e a `PaymentRepository` per registrare ogni tentativo [02-architecture.md — PaymentService].
+
+  - id: bill-014
+    category: dependencies
+    difficulty: medium
+    answerable: full
+    question: "Which components are allowed to access the database?"
+    sources: ["02-architecture.md#Components"]
+    must_include: ["SubscriptionRepository", "InvoiceRepository", "PaymentRepository"]
+    answer: |
+      Database access is owned by the repositories: `SubscriptionRepository`, `InvoiceRepository` and `PaymentRepository` [02-architecture.md — Components].
+
+      The other listed components have different roles: `InvoiceService` builds invoices, `PaymentService` executes charges and refunds, `StripeGateway` performs the Stripe HTTP calls and `WebhookHandler` consumes Stripe callbacks [02-architecture.md — Components].
+
+  - id: bill-015
+    category: how_it_works
+    difficulty: medium
+    answerable: partial
+    question: "Come vengono gestiti i rimborsi parziali e quanto tempo impiegano ad arrivare al cliente?"
+    sources: ["04-api-reference.md#POST /invoices/{id}/refund", "07-errors.md#Domain errors"]
+    must_include: ["amountCents", "refund_exceeds_amount"]
+    answer: |
+      Sulla meccanica la documentazione risponde, sui tempi no.
+
+      Documentato: `POST /invoices/{id}/refund` rimborsa una fattura pagata passando da `PaymentService.refund`, e i rimborsi parziali si ottengono con il campo opzionale `amountCents`; la rotta risponde HTTP 200 con il record di rimborso [04-api-reference.md — POST /invoices/{id}/refund]. Se l'importo richiesto supera l'importo pagato viene restituito `refund_exceeds_amount` con HTTP 422 [07-errors.md — Domain errors].
+
+      Non documentato: le sezioni fornite non dicono nulla sui tempi di accredito verso il cliente, che dipendono dal provider e non sono descritti qui.
+
+  - id: bill-016
+    category: errors
+    difficulty: easy
+    answerable: full
+    question: "Cosa succede se la firma di un webhook non è valida?"
+    sources: ["07-errors.md#Webhook failures", "04-api-reference.md#POST /webhooks/stripe"]
+    must_include: ["invalid_signature", "400"]
+    answer: |
+      Il webhook viene rifiutato con HTTP 400 `invalid_signature` e non viene salvato [07-errors.md — Webhook failures].
+
+      La verifica della firma è la prima cosa che fa la rotta, prima di qualsiasi altra operazione; solo dopo l'evento grezzo viene salvato in `webhook_events` e la rotta risponde subito HTTP 200, lasciando l'elaborazione a `billing-worker` [04-api-reference.md — POST /webhooks/stripe].

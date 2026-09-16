@@ -1,0 +1,40 @@
+# Smaller real model profile: faster iteration on a laptop, and the profile used
+# for this repo's end-to-end validation run. Same architecture family as the
+# default (Qwen2ForCausalLM, Apache-2.0), so nothing else changes.
+#
+#   huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct \
+#       --local-dir artifacts/base/Qwen2.5-0.5B-Instruct
+
+base_model: artifacts/base/Qwen2.5-0.5B-Instruct
+revision: null
+trust_remote_code: false
+
+max_seq_length: 1024   # context budget at inference; training caps itself lower
+dtype: float16   # 8 GB M1: fp32 weights + a 151936-wide logit tensor do not fit
+device_map: auto
+attn_implementation: null
+
+quantization:
+  enabled: false
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  task_type: CAUSAL_LM
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  modules_to_save: []
+
+generation:
+  max_new_tokens: 320
+  temperature: 0.0
+  top_p: 1.0
+  repetition_penalty: 1.05
+
+export:
+  merged_dir: artifacts/export/merged-0.5b
+  gguf_dir: artifacts/export/gguf-0.5b
+  outtype: f16
+  quantizations: [Q4_K_M, Q5_K_M, Q8_0]
+  primary_quantization: Q4_K_M

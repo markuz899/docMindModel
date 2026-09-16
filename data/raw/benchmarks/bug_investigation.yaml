@@ -1,0 +1,221 @@
+# Bug-investigation benchmark.
+# Each item checks four things at once: does the model lay out the DOCUMENTED
+# path, name the RELEVANT COMPONENTS, propose investigation points that follow
+# from the docs, and mark the UNKNOWN parts as unknown instead of guessing.
+#
+# `must_include`     -> components / facts a useful answer has to surface
+# `must_not_include` -> plausible-sounding causes that are NOT in the context
+# `answerable: partial|none` -> the answer must explicitly flag the gap
+examples:
+  - id: bug-001
+    project: mesh-gateway
+    heldout: true
+    category: bug_investigation
+    difficulty: hard
+    answerable: partial
+    question: "I client ricevono 504 chiamando /v1/invoices. Da dove comincio?"
+    sources: ["mesh-gateway:06-errors.md#Upstream errors", "mesh-gateway:03-routing.md#Billing routes", "mesh-gateway:04-configuration.md#Timeouts", "mesh-gateway:06-errors.md#Error envelope"]
+    must_include: ["upstream_timeout", "billing-core", "timeoutMs", "requestId"]
+    must_not_include: ["query lenta", "deadlock", "Stripe è down"]
+    answer: |
+      Il 504 del gateway è `upstream_timeout`, restituito quando l'upstream supera il timeout della rotta [06-errors.md — Upstream errors].
+
+      Percorso documentato: `/v1/invoices/*` inoltra all'upstream `billing-core` [03-routing.md — Billing routes]; il timeout applicato è `upstreamTimeoutMs` oppure il `timeoutMs` dichiarato dalla rotta, che lo sovrascrive [04-configuration.md — Timeouts].
+
+      Punti di verifica che derivano dalla documentazione:
+      1. Il `timeoutMs` della rotta `/v1/invoices/*`, perché è quello che decide quando scatta il 504 [04-configuration.md — Timeouts].
+      2. I log dell'upstream correlati tramite `requestId`, che coincide con l'header `X-Request-Id` dell'envelope di errore [06-errors.md — Error envelope].
+
+      Non documentato: le sezioni fornite non dicono perché l'upstream stia impiegando più del timeout. Attribuire la causa a `billing-core` sarebbe un'ipotesi non supportata da queste fonti.
+
+  - id: bug-002
+    project: mesh-gateway
+    heldout: true
+    category: bug_investigation
+    difficulty: hard
+    answerable: none
+    question: "POST /v1/order restituisce 500. Qual è la causa?"
+    sources: ["mesh-gateway:03-routing.md#Billing routes", "mesh-gateway:03-routing.md#Identity routes", "mesh-gateway:06-errors.md#Gateway errors"]
+    must_not_include: ["OrderService", "OrderController", "database"]
+    answer: |
+      Le sezioni fornite non contengono informazioni su una rotta `/v1/order`, quindi non posso determinare la causa di quel 500.
+
+      Le rotte documentate qui sono `/v1/me` e `/v1/auth/*` verso `acme-identity` [03-routing.md — Identity routes] e `/v1/invoices/*` e `/v1/subscriptions/*` verso `billing-core` [03-routing.md — Billing routes]. Gli errori del gateway elencati sono `route_not_found`, `unauthenticated`, `forbidden_scope` e `rate_limited`, nessuno dei quali è un 500 [06-errors.md — Gateway errors].
+
+      Per rispondere servirebbe la documentazione della rotta `/v1/order`, che non è tra le fonti fornite.
+
+  - id: bug-003
+    project: mesh-gateway
+    heldout: true
+    category: bug_investigation
+    difficulty: medium
+    answerable: partial
+    question: "Dopo un deploy alcune chiamate vanno in 404. Cosa verifico?"
+    sources: ["mesh-gateway:02-architecture.md#RouteResolver", "mesh-gateway:07-deployment.md#Rollout", "mesh-gateway:03-routing.md#routes.yaml"]
+    must_include: ["route_not_found", "SIGHUP", "first matching"]
+    must_not_include: ["DNS", "certificato scaduto", "cache del browser"]
+    answer: |
+      Il 404 del gateway è `route_not_found`, emesso quando nessuna rotta corrisponde al path, senza contattare alcun upstream [02-architecture.md — RouteResolver].
+
+      Da verificare, in ordine:
+      1. Che il reload sia avvenuto: la route table è caricata all'avvio e ricaricata su SIGHUP [02-architecture.md — RouteResolver], e un SIGHUP ricarica `routes.yaml` senza riavvio mentre una modifica a `gateway.yaml` richiede il riavvio del pod [07-deployment.md — Rollout].
+      2. L'ordine delle voci: vince la prima corrispondenza, quindi un wildcard dichiarato prima di un path più specifico lo intercetta [03-routing.md — routes.yaml].
+      3. I `methods` dichiarati per la voce, oltre al `path` [03-routing.md — routes.yaml].
+
+      Non documentato: le fonti fornite non descrivono come e quando il contenuto aggiornato arrivi ai pod dopo un deploy, quindi non posso confermare che il problema sia di propagazione.
+
+  - id: bug-004
+    project: mesh-gateway
+    heldout: true
+    category: bug_investigation
+    difficulty: medium
+    answerable: partial
+    question: "Il readiness probe del gateway fallisce ma il processo è vivo. Perché?"
+    sources: ["mesh-gateway:07-deployment.md#Health", "mesh-gateway:02-architecture.md#RateLimiter", "mesh-gateway:04-configuration.md#Rate limiting"]
+    must_include: ["/readyz", "Redis", "RateLimiter"]
+    must_not_include: ["out of memory", "disco pieno", "CPU"]
+    answer: |
+      È coerente con la differenza fra le due probe: `/healthz` controlla solo il processo, mentre `/readyz` verifica in più la connessione Redis usata da `RateLimiter` [07-deployment.md — Health].
+
+      Quindi un processo vivo con `/readyz` fallito indica un problema sulla connessione Redis, non sul processo. `RateLimiter` tiene i token bucket in Redis proprio per condividerli fra le repliche [02-architecture.md — RateLimiter], e `rateLimit.redisUrl` è obbligatorio: senza di esso il gateway non parte nemmeno [04-configuration.md — Rate limiting].
+
+      Non documentato: le sezioni fornite non indicano timeout, retry o modalità di degrado della connessione Redis, quindi non posso dire se si tratti di indisponibilità, latenza o configurazione errata.
+
+  - id: bug-005
+    project: mesh-gateway
+    heldout: true
+    category: bug_investigation
+    difficulty: hard
+    answerable: none
+    question: "Il gateway restituisce 200 mentre l'upstream ha fallito. Come è possibile?"
+    sources: ["mesh-gateway:06-errors.md#Upstream errors", "mesh-gateway:02-architecture.md#UpstreamProxy"]
+    must_not_include: ["retry mascherato", "cache", "circuit breaker"]
+    answer: |
+      La documentazione fornita contraddice la premessa e non contiene elementi per spiegare quel comportamento.
+
+      Quello che è documentato: il gateway non converte mai un 5xx dell'upstream in un 2xx, e gli status code dell'upstream sopra il 499 vengono propagati invariati, con il body sostituito dall'envelope di errore [06-errors.md — Upstream errors]. `UpstreamProxy` applica il timeout della rotta, ritenta i metodi idempotenti e registra la metrica `gateway_upstream_duration_seconds` [02-architecture.md — UpstreamProxy].
+
+      Le sezioni fornite non descrivono nessun meccanismo che produca un 200 a fronte di un fallimento upstream. Per procedere servirebbero i log della richiesta e la metrica citata, che non sono qui.
+
+  - id: bug-006
+    project: acme-identity
+    category: bug_investigation
+    difficulty: hard
+    answerable: partial
+    question: "Dopo il login il client riceve token_expired quasi subito. Cosa controllo?"
+    sources: ["acme-identity:07-errors.md#Authentication errors", "acme-identity:06-configuration.md#Token settings", "acme-identity:02-architecture.md#Authentication flow"]
+    must_include: ["token_expired", "ACCESS_TOKEN_TTL", "exp"]
+    must_not_include: ["clock skew", "orologio", "NTP"]
+    answer: |
+      `token_expired` è HTTP 401 ed è emesso da `authMiddleware` quando il claim `exp` è nel passato [07-errors.md — Authentication errors].
+
+      Percorso documentato: `authMiddleware` verifica la firma RS256 e controlla il claim `exp` su ogni rotta protetta [02-architecture.md — Authentication flow]; la durata dell'access token è governata da `ACCESS_TOKEN_TTL`, con default 15 minuti [06-configuration.md — Token settings].
+
+      Da verificare: il valore effettivo di `ACCESS_TOKEN_TTL` nell'ambiente, dato che è l'unico parametro documentato che determina `exp` [06-configuration.md — Token settings].
+
+      Non documentato: le fonti fornite non descrivono come viene calcolato `exp` al momento dell'emissione né eventuali disallineamenti di orario, quindi non posso attribuire la causa oltre al TTL configurato.
+
+  - id: bug-007
+    project: acme-identity
+    category: bug_investigation
+    difficulty: medium
+    answerable: partial
+    question: "PATCH /me non aggiorna l'email. È un bug?"
+    sources: ["acme-identity:04-api-reference.md#PATCH /me", "acme-identity:05-main-flows.md#Profile Update Flow", "acme-identity:03-data-model.md#users table"]
+    must_include: ["email", "non sono modificabili", "displayName"]
+    must_not_include: ["endpoint separato", "POST /me/email", "verifica email"]
+    answer: |
+      No, è il comportamento documentato. `PATCH /me` aggiorna soltanto campi di profilo — un sottoinsieme di `displayName`, `avatarUrl`, `locale`, `timezone` — mentre i campi di account come `email` e `status` non sono modificabili da questa rotta [04-api-reference.md — PATCH /me].
+
+      È coerente con il flusso: la scrittura passa da `ProfileService.updateProfile` e `ProfileRepository.upsert`, che toccano il profilo, non l'account [05-main-flows.md — Profile Update Flow]. L'`email` vive sulla tabella `users`, con indice unico [03-data-model.md — users table].
+
+      Non documentato: le sezioni fornite non indicano quale rotta o procedura permetta di cambiare l'email, quindi non posso dire come vada fatto.
+
+  - id: bug-008
+    project: billing-core
+    category: bug_investigation
+    difficulty: hard
+    answerable: partial
+    question: "Un cliente è stato addebitato due volte per la stessa fattura. Da dove parto?"
+    sources: ["billing-core:05-main-flows.md#Charge flow", "billing-core:03-data-model.md#payment_attempts", "billing-core:02-architecture.md#Queue", "billing-core:02-architecture.md#StripeGateway"]
+    must_include: ["idempotency", "attempt_number", "at-least once", "payment_attempts"]
+    must_not_include: ["doppio webhook", "race condition", "bug noto"]
+    answer: |
+      Le fonti descrivono due meccanismi rilevanti, ma non una causa.
+
+      Documentato: la coda è at-least once e ogni consumer deve essere idempotente [02-architecture.md — Queue]. `StripeGateway` aggiunge la chiave di idempotenza [02-architecture.md — StripeGateway] e nel flusso di addebito la idempotency key è derivata da `invoice_id` e `attempt_number` [05-main-flows.md — Charge flow]. Ogni tentativo produce una riga in `payment_attempts`, e il numero di retry di una fattura è il numero di righe per quella fattura [03-data-model.md — payment_attempts].
+
+      Punti di verifica che derivano da questo:
+      1. Le righe in `payment_attempts` per quella fattura: `attempt_number` e `provider_intent_id` dicono se sono stati due tentativi distinti o lo stesso ripetuto [03-data-model.md — payment_attempts].
+      2. Se gli `attempt_number` differiscono, la idempotency key era diversa per costruzione, quindi i due addebiti erano attesi dal meccanismo descritto [05-main-flows.md — Charge flow].
+
+      Non documentato: le fonti non descrivono cosa faccia decidere un nuovo `attempt_number`, quindi non posso stabilire perché ne sia stato generato un secondo.
+
+  - id: bug-009
+    project: billing-core
+    category: bug_investigation
+    difficulty: medium
+    answerable: none
+    question: "Le email di sollecito non arrivano ai clienti. Perché?"
+    sources: ["billing-core:02-architecture.md#Queue", "billing-core:06-configuration.md#Queue settings"]
+    must_not_include: ["SMTP", "spam", "provider email"]
+    answer: |
+      Le sezioni fornite non contengono informazioni sufficienti per determinare la causa.
+
+      Quello che è documentato: le email di dunning sono fra i lavori messi in coda su Redis e consumati da `billing-worker`, e la coda è at-least once [02-architecture.md — Queue]; i parametri disponibili sono `REDIS_URL`, `WORKER_CONCURRENCY` (default 4) e `JOB_VISIBILITY_TIMEOUT_S` (default 300) [06-configuration.md — Queue settings].
+
+      Quello che manca: le fonti non descrivono come le email vengano effettivamente inviate, quale componente le invii, né quali errori possano impedirne il recapito. Per rispondere servirebbe la documentazione del componente di invio.
+
+  - id: bug-010
+    project: docsync-platform
+    category: bug_investigation
+    difficulty: hard
+    answerable: partial
+    question: "Una richiesta è ferma in stato rendering da ore. Cosa può essere?"
+    sources: ["docsync-platform:07-errors.md#Signature errors", "docsync-platform:03-data-model.md#document_requests", "docsync-platform:02-architecture.md#RenderService", "docsync-platform:06-configuration.md#Render settings"]
+    must_include: ["signature_unavailable", "rendering", "HSM"]
+    must_not_include: ["deadlock del database", "worker crashato", "disco pieno"]
+    answer: |
+      C'è una causa documentata che lascia la richiesta esattamente in quello stato.
+
+      `signature_unavailable` si verifica quando l'HSM è irraggiungibile al momento della firma: la richiesta resta in `rendering` e il job viene ritentato dal worker [07-errors.md — Signature errors]. È l'unico caso documentato in cui lo stato `rendering` persiste, perché gli errori di render portano invece a `render_failed` [02-architecture.md — RenderService].
+
+      Da verificare: la raggiungibilità dell'HSM e i tentativi del worker per quel job [07-errors.md — Signature errors]. Vale la pena confrontare anche il tempo trascorso con `docsync.render.timeout-ms`, default 20000, oltre il quale un render viene interrotto [06-configuration.md — Render settings].
+
+      Non documentato: gli stati previsti sono `received`, `rendering`, `render_failed`, `rendered`, `delivering`, `delivered`, `failed` [03-data-model.md — document_requests], ma le fonti non indicano dopo quanto tempo un job bloccato venga abbandonato, quindi non posso dire se sia ancora in retry.
+
+  - id: bug-011
+    project: docsync-platform
+    category: bug_investigation
+    difficulty: medium
+    answerable: partial
+    question: "Il documento risulta consegnato ma il destinatario dice di non averlo ricevuto."
+    sources: ["docsync-platform:03-data-model.md#deliveries", "docsync-platform:05-main-flows.md#Delivery flow", "docsync-platform:04-api-reference.md#GET /documents/{id}/deliveries"]
+    must_include: ["accepted", "DeliveryStatusListener", "provider_message_id"]
+    must_not_include: ["finito nello spam", "indirizzo sbagliato", "ritardo del provider"]
+    answer: |
+      Va distinto che cosa significa "consegnato" in questo sistema.
+
+      Lo stato di una delivery è aggiornato da `DeliveryStatusListener` a partire dalle callback del provider e può essere `accepted`, `rejected` o `bounced` [05-main-flows.md — Delivery flow]; gli stati possibili sulla riga sono `queued`, `sent`, `accepted`, `rejected`, `bounced` [03-data-model.md — deliveries]. `accepted` è quindi una conferma del provider, riportata dal provider stesso.
+
+      Da verificare: `GET /documents/{id}/deliveries` mostra provider, stato, `attemptNumber` ed `errorCode` di ogni tentativo [04-api-reference.md — GET /documents/{id}/deliveries], e la riga porta anche `recipient` e `provider_message_id`, utili per risalire al messaggio lato provider [03-data-model.md — deliveries].
+
+      Non documentato: le fonti non descrivono che cosa il provider intenda esattamente con l'accettazione, né come tracciare il messaggio dopo quel punto. Non posso quindi concludere che la consegna al destinatario finale sia avvenuta.
+
+  - id: bug-012
+    project: docsync-platform
+    category: bug_investigation
+    difficulty: medium
+    answerable: partial
+    question: "Il PDF generato non risulta firmato. Cosa controllo?"
+    sources: ["docsync-platform:08-troubleshooting.md#Documents are produced but not signed", "docsync-platform:03-data-model.md#documents", "docsync-platform:02-architecture.md#SignatureService"]
+    must_include: ["signed", "checkpoint", "HSM"]
+    must_not_include: ["certificato scaduto", "chiave sbagliata", "bug del renderer"]
+    answer: |
+      Il campo da guardare è `documents.signed`, che fa parte della riga del documento insieme a `storage_key`, `checksum_sha256` e `size_bytes` [03-data-model.md — documents].
+
+      Documentato: `documents.signed` è false solo se il passo di firma è stato saltato, cosa che accade quando la richiesta è stata riprocessata a partire da un checkpoint precedente alla firma. Il certificato HSM non può mancare a runtime, perché senza di esso l'applicazione non parte [08-troubleshooting.md — Documents are produced but not signed], come conferma il fatto che `SignatureService` carica il certificato dall'HSM all'avvio [02-architecture.md — SignatureService].
+
+      Da verificare: se quella richiesta sia stata riprocessata da un checkpoint precedente alla firma, che è l'unica causa documentata.
+
+      Non documentato: le fonti non spiegano come vengano creati o riprodotti quei checkpoint, quindi non posso indicare come evitarlo.

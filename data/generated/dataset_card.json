@@ -1,0 +1,132 @@
+{
+  "dataset_version": "0.1.0",
+  "built_on": "2026-09-16",
+  "split_policy": {
+    "train": 0.8,
+    "validation": 0.1,
+    "test": 0.1,
+    "group_by": "project",
+    "near_duplicate_threshold": 0.9
+  },
+  "quality_gate": {
+    "min_question_chars": 10,
+    "max_question_chars": 500,
+    "min_answer_chars": 20,
+    "max_answer_chars": 4000,
+    "max_answer_context_ratio": 1.5,
+    "long_answer_min_chars": 1200,
+    "min_groundedness": 0.15,
+    "min_technical_groundedness": 0.75,
+    "max_unsupported_identifiers": 0,
+    "max_unsupported_identifiers_refusal": 3,
+    "require_citation_when_answerable": true
+  },
+  "rejected": 0,
+  "totals": {
+    "count": 184,
+    "by_category": {
+      "architecture": 10,
+      "bug_investigation": 13,
+      "comparison": 8,
+      "configuration": 13,
+      "data_flow": 8,
+      "database": 6,
+      "dependencies": 8,
+      "errors": 17,
+      "how_it_works": 78,
+      "integrations": 6,
+      "multi_source": 8,
+      "route": 9
+    },
+    "by_answerability": {
+      "full": 108,
+      "none": 64,
+      "partial": 12
+    },
+    "by_project": {
+      "acme-identity": 53,
+      "billing-core": 45,
+      "docsync-platform": 45,
+      "mesh-gateway": 41
+    },
+    "avg_sources": 3.73
+  },
+  "splits": {
+    "train": {
+      "count": 127,
+      "by_category": {
+        "architecture": 8,
+        "bug_investigation": 7,
+        "comparison": 6,
+        "configuration": 8,
+        "data_flow": 8,
+        "database": 6,
+        "dependencies": 4,
+        "errors": 12,
+        "how_it_works": 51,
+        "integrations": 4,
+        "multi_source": 6,
+        "route": 7
+      },
+      "by_answerability": {
+        "full": 75,
+        "none": 42,
+        "partial": 10
+      },
+      "by_project": {
+        "acme-identity": 43,
+        "billing-core": 40,
+        "docsync-platform": 44
+      },
+      "avg_sources": 3.77
+    },
+    "validation": {
+      "count": 16,
+      "by_category": {
+        "bug_investigation": 4,
+        "dependencies": 2,
+        "errors": 2,
+        "how_it_works": 8
+      },
+      "by_answerability": {
+        "full": 10,
+        "none": 6
+      },
+      "by_project": {
+        "acme-identity": 10,
+        "billing-core": 5,
+        "docsync-platform": 1
+      },
+      "avg_sources": 3.88
+    },
+    "test": {
+      "count": 41,
+      "by_category": {
+        "architecture": 2,
+        "bug_investigation": 2,
+        "comparison": 2,
+        "configuration": 5,
+        "dependencies": 2,
+        "errors": 3,
+        "how_it_works": 19,
+        "integrations": 2,
+        "multi_source": 2,
+        "route": 2
+      },
+      "by_answerability": {
+        "full": 23,
+        "none": 16,
+        "partial": 2
+      },
+      "by_project": {
+        "mesh-gateway": 41
+      },
+      "avg_sources": 3.54
+    }
+  },
+  "sources": {
+    "seed_examples": 66,
+    "distractor_variants": 58,
+    "generated_unanswerable": 60
+  }
+}

@@ -1,0 +1,41 @@
+# Training profile for the 0.5B validation run: full passes over the demo
+# dataset on a laptop (MPS/CPU), a few minutes rather than a few hours.
+output_dir: artifacts/adapter-0.5b
+run_name: docmind-qwen2.5-0.5b-lora
+seed: 42
+
+num_train_epochs: 3
+max_steps: -1
+learning_rate: 2.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+weight_decay: 0.01
+max_grad_norm: 1.0
+optim: adamw_torch
+
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 4   # ~75 optimizer steps over a small dataset
+gradient_checkpointing: true      # required on 8-16 GB unified memory
+
+bf16: auto
+fp16: auto
+
+logging_steps: 5
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 2
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+resume_from_checkpoint: null
+
+completion_only_loss: true
+dataloader_num_workers: 0
+report_to: []
+skip_overlong: true
+max_seq_length: 640   # training-only cap: 8 GB M1. Keeps 97/127 examples whole.
+
+# Drop the accelerator's cached blocks every N steps. On Apple Silicon the
+# MPS allocator grows monotonically and step time degrades without this.
+empty_cache_steps: 1

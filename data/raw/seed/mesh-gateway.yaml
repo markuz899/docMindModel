@@ -1,0 +1,190 @@
+project: mesh-gateway
+examples:
+  - id: mesh-001
+    category: how_it_works
+    difficulty: medium
+    answerable: full
+    question: "Come viene gestita una richiesta dal gateway?"
+    sources: ["02-architecture.md#Request pipeline", "01-overview.md#Purpose"]
+    must_include: ["AuthMiddleware", "RateLimiter", "UpstreamProxy"]
+    answer: |
+      Ogni richiesta attraversa la pipeline in ordine: `TLSTerminator`, `RequestIdMiddleware`, `AuthMiddleware`, `RateLimiter`, `RouteResolver`, `UpstreamProxy`. Un middleware che rifiuta la richiesta corto-circuita il resto della pipeline [02-architecture.md — Request pipeline].
+
+      Il gateway termina TLS, autentica il chiamante, applica i rate limit e inoltra la richiesta al servizio upstream corretto; non contiene logica di business né database [01-overview.md — Purpose].
+
+  - id: mesh-002
+    category: configuration
+    difficulty: hard
+    answerable: partial
+    question: "Qual è il timeout di default verso gli upstream?"
+    sources: ["04-configuration.md#Timeouts", "05-timeouts.md#Default upstream timeout", "04-configuration.md#Files and env"]
+    tags: ["contradiction"]
+    must_include: ["30000", "10000"]
+    answer: |
+      La documentazione fornita è contrastante su questo valore.
+
+      - `upstreamTimeoutMs` è indicato come timeout upstream di default con valore 30000, sovrascrivibile per rotta con il `timeoutMs` della rotta [04-configuration.md — Timeouts].
+      - La policy di piattaforma indica invece un timeout upstream di default di 10000 ms, che il gateway applicherebbe a ogni rotta senza `timeoutMs` proprio [05-timeouts.md — Default upstream timeout].
+
+      Le due fonti concordano sul meccanismo (default sovrascrivibile per rotta) ma non sul valore, e non ho elementi per stabilire quale sia attuale. Va verificato il valore effettivo in `gateway.yaml`, che contiene le impostazioni statiche [04-configuration.md — Files and env], o quale delle due pagine sia più recente.
+
+  - id: mesh-003
+    category: errors
+    difficulty: medium
+    answerable: full
+    question: "Che cosa restituisce il gateway se l'upstream va in timeout?"
+    sources: ["06-errors.md#Upstream errors", "06-errors.md#Error envelope"]
+    must_include: ["upstream_timeout", "504"]
+    answer: |
+      HTTP 504 con codice `upstream_timeout`, quando l'upstream supera il timeout della rotta [06-errors.md — Upstream errors].
+
+      Il corpo segue l'envelope standard `{ "error": "<code>", "requestId": "<id>" }`, dove `requestId` coincide con l'header `X-Request-Id` ed è la chiave per correlare i log del gateway con quelli dell'upstream [06-errors.md — Error envelope].
+
+      Nota: un fallimento di connessione è invece `upstream_unavailable` con HTTP 502, e il gateway non converte mai un 5xx dell'upstream in un 2xx [06-errors.md — Upstream errors].
+
+  - id: mesh-004
+    category: route
+    difficulty: medium
+    answerable: full
+    question: "Come vengono risolte le rotte?"
+    sources: ["02-architecture.md#RouteResolver", "03-routing.md#routes.yaml"]
+    must_include: ["routes.yaml", "route_not_found", "SIGHUP"]
+    answer: |
+      `RouteResolver` confronta il path della richiesta con la route table e produce un target upstream. La tabella viene caricata da `routes.yaml` all'avvio e ricaricata su SIGHUP; un path senza corrispondenza restituisce HTTP 404 `route_not_found` senza contattare nessun upstream [02-architecture.md — RouteResolver].
+
+      Ogni voce di `routes.yaml` dichiara `path`, `methods`, `upstream`, `timeoutMs`, `authRequired` e `rateLimit`, e vince la prima corrispondenza: i path più specifici vanno dichiarati prima dei wildcard [03-routing.md — routes.yaml].
+
+  - id: mesh-005
+    category: architecture
+    difficulty: medium
+    answerable: full
+    question: "Perché il rate limiter usa Redis?"
+    sources: ["02-architecture.md#RateLimiter", "07-deployment.md#Kubernetes"]
+    must_include: ["token bucket", "Redis", "replica"]
+    answer: |
+      Perché il budget deve essere condiviso fra le repliche: `RateLimiter` è un token bucket per caller id e rotta, e i bucket vivono in Redis proprio perché tutte le repliche del gateway condividano lo stesso budget. Quando il bucket è vuoto la richiesta viene rifiutata con HTTP 429 e un header `Retry-After` [02-architecture.md — RateLimiter].
+
+      Il gateway è effettivamente multi-replica: è deployato come Deployment con 4 repliche e un HorizontalPodAutoscaler al 60% di CPU [07-deployment.md — Kubernetes].
+
+  - id: mesh-006
+    category: integrations
+    difficulty: medium
+    answerable: full
+    question: "Quali upstream sono raggiungibili tramite il gateway?"
+    sources: ["03-routing.md#Identity routes", "03-routing.md#Billing routes", "03-routing.md#Document routes"]
+    must_include: ["acme-identity", "billing-core", "docsync-platform"]
+    answer: |
+      Nelle sezioni fornite sono documentati tre upstream:
+
+      - `acme-identity`, per `/v1/me` e `/v1/auth/*`; `/v1/me` richiede autenticazione, `/v1/auth/login` no [03-routing.md — Identity routes].
+      - `billing-core`, per `/v1/invoices/*` e `/v1/subscriptions/*`, che richiedono uno scope billing [03-routing.md — Billing routes].
+      - `docsync-platform`, per `/v1/documents/*`; i path di callback dei provider sotto `/v1/providers/callbacks/*` sono dichiarati con `authRequired: false` perché i provider si autenticano con una firma invece che con un bearer token [03-routing.md — Document routes].
+
+  - id: mesh-007
+    category: bug_investigation
+    difficulty: hard
+    answerable: full
+    question: "Un client riceve 404 su una rotta che dovrebbe esistere. Cosa controllo?"
+    sources: ["02-architecture.md#RouteResolver", "03-routing.md#routes.yaml", "07-deployment.md#Rollout", "07-deployment.md#Kubernetes"]
+    must_include: ["route_not_found", "first matching", "SIGHUP"]
+    answer: |
+      Il 404 documentato del gateway è `route_not_found`, restituito quando nessuna rotta corrisponde al path, senza contattare alcun upstream [02-architecture.md — RouteResolver].
+
+      Verifiche che derivano dalla documentazione:
+      1. Ordine delle voci in `routes.yaml`: vince la prima corrispondenza, quindi una voce wildcard dichiarata prima di una più specifica può intercettare il path [03-routing.md — routes.yaml].
+      2. Corrispondenza di `path` e `methods` della voce, che sono entrambi dichiarati per ogni rotta [03-routing.md — routes.yaml].
+      3. Se la rotta è stata aggiunta di recente, verificare che il reload sia avvenuto: la route table è caricata all'avvio e ricaricata su SIGHUP [02-architecture.md — RouteResolver], e `routes.yaml` sta nella stessa ConfigMap `mesh-gateway-config` montata nei pod [07-deployment.md — Kubernetes].
+
+      Ipotesi, non documentata: che il ConfigMap aggiornato non sia ancora stato propagato ai pod. Le sezioni fornite non descrivono i tempi di propagazione, quindi va verificato sul cluster.
+
+  - id: mesh-008
+    category: configuration
+    difficulty: easy
+    answerable: full
+    question: "Quali sono i limiti di rate configurati di default?"
+    sources: ["04-configuration.md#Rate limiting"]
+    must_include: ["50", "100"]
+    answer: |
+      `rateLimit.defaultRps` è 50 richieste al secondo per caller e `rateLimit.burst` è 100 [04-configuration.md — Rate limiting].
+
+      `rateLimit.redisUrl` è obbligatorio: senza di esso il gateway si rifiuta di partire [04-configuration.md — Rate limiting].
+
+  - id: mesh-009
+    category: dependencies
+    difficulty: easy
+    answerable: full
+    question: "What does the readiness probe check?"
+    sources: ["07-deployment.md#Health", "02-architecture.md#RateLimiter"]
+    must_include: ["/readyz", "Redis"]
+    answer: |
+      `/readyz` is the readiness probe and, on top of the process check, it verifies the Redis connection used by `RateLimiter` [07-deployment.md — Health].
+
+      `/healthz` is the liveness probe and only checks the process [07-deployment.md — Health]. The Redis dependency is real because the rate limiter keeps its token buckets there so every replica shares one budget [02-architecture.md — RateLimiter].
+
+  - id: mesh-010
+    category: comparison
+    difficulty: medium
+    answerable: full
+    question: "Qual è la differenza tra un 502 e un 504 restituiti dal gateway?"
+    sources: ["06-errors.md#Upstream errors"]
+    must_include: ["upstream_unavailable", "upstream_timeout"]
+    answer: |
+      Riguardano due fallimenti diversi della chiamata upstream [06-errors.md — Upstream errors]:
+
+      - HTTP 504 `upstream_timeout`: l'upstream ha superato il timeout della rotta.
+      - HTTP 502 `upstream_unavailable`: la connessione verso l'upstream è fallita.
+
+      In nessuno dei due casi il gateway maschera l'esito: gli status code dell'upstream sopra il 499 vengono propagati invariati, con il body sostituito dall'envelope di errore del gateway [06-errors.md — Upstream errors].
+
+  - id: mesh-011
+    category: multi_source
+    difficulty: hard
+    answerable: full
+    question: "Come faccio a correlare un errore visto dal client con i log dell'upstream?"
+    sources: ["06-errors.md#Error envelope", "01-overview.md#Position in the platform", "02-architecture.md#Request pipeline"]
+    must_include: ["X-Request-Id", "requestId"]
+    answer: |
+      Tramite il request id.
+
+      - L'envelope di errore del gateway contiene `requestId`, che coincide con l'header `X-Request-Id` ed è la chiave per correlare i log del gateway con quelli dell'upstream [06-errors.md — Error envelope].
+      - È il gateway stesso ad aggiungere gli header `X-Request-Id` e `X-Caller-Id`, che i servizi a valle loggano e propagano [01-overview.md — Position in the platform].
+      - L'header viene impostato presto nella pipeline, da `RequestIdMiddleware`, prima di autenticazione, rate limiting e proxy [02-architecture.md — Request pipeline].
+
+  - id: mesh-012
+    category: configuration
+    difficulty: medium
+    answerable: full
+    question: "Come si modifica la route table senza riavviare i pod?"
+    sources: ["07-deployment.md#Rollout", "02-architecture.md#RouteResolver", "04-configuration.md#Files and env", "07-deployment.md#Kubernetes"]
+    distractors: ["billing-core:03-data-model.md#webhook_events", "docsync-platform:07-errors.md#Signature errors", "acme-identity:04-api-reference.md#POST /auth/refresh"]
+    must_include: ["SIGHUP", "gateway.yaml", "ConfigMap"]
+    answer: |
+      Inviando un SIGHUP: il reload di `routes.yaml` avviene senza riavvio, mentre una modifica a `gateway.yaml` richiede il riavvio del pod [07-deployment.md — Rollout].
+
+      La route table è caricata da `routes.yaml` all'avvio e ricaricata proprio su SIGHUP [02-architecture.md — RouteResolver]. La configurazione è montata dalla ConfigMap `mesh-gateway-config` e `routes.yaml` sta nella stessa ConfigMap [07-deployment.md — Kubernetes]; `gateway.yaml` contiene invece le impostazioni statiche [04-configuration.md — Files and env].
+
+  - id: mesh-013
+    category: errors
+    difficulty: hard
+    answerable: none
+    question: "I client vedono molti 429. Quale caller sta esaurendo il budget?"
+    sources: ["02-architecture.md#RateLimiter", "06-errors.md#Gateway errors"]
+    must_not_include: ["il client mobile", "job batch", "scraper"]
+    answer: |
+      Le sezioni fornite spiegano il meccanismo ma non permettono di identificare il caller responsabile.
+
+      Cosa è documentato: `rate_limited` è HTTP 429 e viene restituito quando il token bucket è vuoto [06-errors.md — Gateway errors]; i bucket sono per caller id e rotta e vivono in Redis, condivisi fra tutte le repliche [02-architecture.md — RateLimiter].
+
+      Cosa manca: nelle sezioni fornite non ci sono metriche per caller, query sui bucket Redis né strumenti di ispezione. Identificare il caller richiederebbe dati che questa documentazione non contiene.
+
+  - id: mesh-014
+    category: how_it_works
+    difficulty: easy
+    answerable: full
+    question: "I servizi interni sono raggiungibili direttamente dall'esterno?"
+    sources: ["01-overview.md#Position in the platform", "01-overview.md#Purpose"]
+    must_include: ["cluster", "gateway"]
+    answer: |
+      No. I client parlano solo con il gateway e i servizi interni non sono raggiungibili dall'esterno del cluster [01-overview.md — Position in the platform].
+
+      Il gateway è l'unico ingress per ogni chiamata API pubblica: termina TLS, autentica il chiamante, applica i rate limit e inoltra al servizio upstream [01-overview.md — Purpose].

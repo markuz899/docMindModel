@@ -1,0 +1,50 @@
+# LoRA / QLoRA supervised fine-tuning. Tuned for a single consumer GPU
+# (>=8 GB) or Apple Silicon. Nothing here assumes an A100.
+
+output_dir: artifacts/adapter
+run_name: docmind-qwen2.5-1.5b-lora
+seed: 42
+
+num_train_epochs: 3
+max_steps: -1                     # >0 overrides epochs (used by smoke mode)
+learning_rate: 2.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+weight_decay: 0.01
+max_grad_norm: 1.0
+optim: adamw_torch                # adamw_bnb_8bit when bitsandbytes is available
+
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 16   # effective batch 16
+gradient_checkpointing: true
+
+# Mixed precision. Auto-resolved per device in src/training/train.py:
+#   cuda+ampere -> bf16, older cuda -> fp16, mps/cpu -> off (fp32).
+bf16: auto
+fp16: auto
+
+logging_steps: 5
+eval_strategy: epoch              # no | steps | epoch
+save_strategy: epoch
+save_total_limit: 3
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+resume_from_checkpoint: null      # path, or "latest" to pick up the last checkpoint
+
+# Train on the answer tokens only; the prompt is masked out of the loss.
+completion_only_loss: true
+dataloader_num_workers: 0
+report_to: []                     # e.g. ["tensorboard"]
+
+# Examples longer than max_seq_length are dropped, not truncated: truncating
+# the prompt can remove the very section the answer cites.
+skip_overlong: true
+# Training-only context cap; null = use the model's max_seq_length. Lower it
+# when the backward pass runs out of memory -- inference is unaffected.
+max_seq_length: null
+
+# Drop the accelerator's cached blocks every N steps. On Apple Silicon the
+# MPS allocator grows monotonically and step time degrades without this.
+empty_cache_steps: 1
