@@ -64,7 +64,8 @@ def main() -> int:
     parser.add_argument("--project-name", default=None,
                         help="project label for docs sitting directly in --docs")
     parser.add_argument("--allow-metered-env", action="store_true",
-                        help="proceed even when the environment implies per-token billing")
+                        help="accept per-token billing: keeps metered credentials in the "
+                             "teacher's environment and skips the billing block")
     parser.add_argument("--health-check", action="store_true",
                         help="report teacher CLI availability and billing risk, then exit")
     parser.add_argument("--dry-run", action="store_true",
@@ -129,6 +130,9 @@ def main() -> int:
         timeout=gen.timeout_s,
         allow_metered_env=args.allow_metered_env,
     )
+    if getattr(teacher, "subscription_only", False):
+        print("[teacher] running on subscription credentials only "
+              "(metered keys removed from the subprocess environment)")
 
     out_path = resolve_path(args.out or f"{cfg.generated_dir}/real-candidates.jsonl")
     examples, report = run_generation(

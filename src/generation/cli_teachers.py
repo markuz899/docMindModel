@@ -127,31 +127,62 @@ def failure_text(proc: subprocess.CompletedProcess) -> str:
     return f"{stderr_tail}\n{stdout_tail}".strip()
 
 
-def metered_env_warnings(provider: str) -> list[str]:
-    """Environment that could silently turn a subscription call into a billed one."""
+# Credentials that make a CLI bill per token instead of using the subscription.
+# They are removed from the *child process* environment, never from the user's
+# shell: the pipeline must not mutate the environment it was launched from.
+METERED_ENV_VARS = {
+    "claude": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+               "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"),
+    "codex": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+}
+
+
+def subscription_env(provider: str) -> dict[str, str]:
+    """A copy of the environment with metered credentials removed.
+
+    Verified on claude 2.1.273: with ANTHROPIC_API_KEY present the CLI reports
+    `apiKeySource: ANTHROPIC_API_KEY`; without it, `subscriptionType: pro`.
+    Same login, different billing.
+    """
+    env = dict(os.environ)
+    for name in METERED_ENV_VARS.get(provider, ()):
+        env.pop(name, None)
+    return env
+
+
+def metered_env_warnings(provider: str, stripped: bool = False) -> list[str]:
+    """Environment worth mentioning, but not proof that billing will happen.
+
+    When `stripped` is set the credentials have been removed from the teacher's
+    subprocess environment, so there is nothing left to warn about -- the note
+    explains what was done instead.
+    """
+    if stripped:
+        present = [v for v in METERED_ENV_VARS.get(provider, ()) if os.environ.get(v)]
+        if not present:
+            return []
+        return [
+            f"{', '.join(present)} present in this shell but removed from the teacher's "
+            "subprocess environment; the CLI will use its subscription login. "
+            "Your shell is untouched."
+        ]
     warnings: list[str] = []
-    if provider == "claude":
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            warnings.append(
-                "ANTHROPIC_API_KEY is set. Claude Code may bill this key per token "
-                "instead of using your subscription. Unset it in this shell "
-                "(`unset ANTHROPIC_API_KEY`) if you want subscription usage."
-            )
-        for var in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK",
-                    "CLAUDE_CODE_USE_VERTEX"):
-            if os.environ.get(var):
-                warnings.append(f"{var} is set; requests may be routed to a billed endpoint.")
-    if provider == "codex":
-        if os.environ.get("OPENAI_API_KEY"):
-            warnings.append(
-                "OPENAI_API_KEY is set. Codex prefers the ChatGPT login when present, "
-                "but verify with `codex login status` that it says 'Logged in using ChatGPT'."
-            )
+    if provider == "codex" and os.environ.get("OPENAI_API_KEY"):
+        warnings.append(
+            "OPENAI_API_KEY is set. `codex login status` reports the ChatGPT login, "
+            "which takes precedence, so calls should use your subscription."
+        )
+    if provider == "claude" and os.environ.get("ANTHROPIC_API_KEY"):
+        warnings.append("ANTHROPIC_API_KEY is set in this shell.")
+    for var in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+                "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"):
+        if provider == "claude" and os.environ.get(var):
+            warnings.append(f"{var} is set; requests may be routed to a billed endpoint.")
     return warnings
 
 
 def _run(argv: list[str], stdin: str | None = None, timeout: int = 300,
-         cwd: str | None = None) -> subprocess.CompletedProcess:
+         cwd: str | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     """Run a CLI without a shell. Argument list only -- never string concatenation."""
     try:
         return subprocess.run(
@@ -161,6 +192,7 @@ def _run(argv: list[str], stdin: str | None = None, timeout: int = 300,
             text=True,
             timeout=timeout,
             cwd=cwd,
+            env=env,
             check=False,
         )
     except FileNotFoundError as exc:
@@ -178,11 +210,18 @@ class _CliTeacher:
     name = ""
 
     def __init__(self, model: str | None = None, timeout: int = 300,
-                 allow_metered_env: bool = False, **_: object) -> None:
+                 allow_metered_env: bool = False, subscription_only: bool = True,
+                 **_: object) -> None:
         self.model = model
         self.timeout = timeout
+        # --allow-metered-env means "I accept per-token billing": it both stops
+        # the block and stops stripping the credentials that cause it.
         self.allow_metered_env = allow_metered_env
+        self.subscription_only = subscription_only and not allow_metered_env
         self._health: HealthReport | None = None
+
+    def child_env(self) -> dict[str, str] | None:
+        return subscription_env(self.name) if self.subscription_only else None
 
     # -- identity -------------------------------------------------------
 
@@ -194,7 +233,7 @@ class _CliTeacher:
         if not path:
             return None
         try:
-            proc = _run([self.binary, "--version"], timeout=30)
+            proc = _run([self.binary, "--version"], timeout=30, env=self.child_env())
         except TeacherCallError:
             return None
         return (proc.stdout or proc.stderr).strip().splitlines()[0] if proc.returncode == 0 else None
@@ -247,18 +286,18 @@ class CodexCliTeacher(_CliTeacher):
             return HealthReport(self.name, TeacherHealth.NOT_INSTALLED,
                                 detail="`codex` is not on PATH")
         try:
-            proc = _run([self.binary, "login", "status"], timeout=45)
+            proc = _run([self.binary, "login", "status"], timeout=45, env=self.child_env())
         except TeacherCallError as exc:
             return HealthReport(self.name, TeacherHealth.UNKNOWN_ERROR, version, str(exc))
         output = (proc.stdout + proc.stderr).strip()
-        warnings = metered_env_warnings("codex")
+        warnings = metered_env_warnings("codex", self.subscription_only)
         if proc.returncode != 0 or "not logged in" in output.lower():
             return HealthReport(self.name, TeacherHealth.AVAILABLE_NOT_AUTHENTICATED, version,
                                 f"run `codex login` ({output[:120]})", metered_warnings=warnings)
         lowered = output.lower()
         auth = "ChatGPT" if "chatgpt" in lowered else ("API key" if "api key" in lowered else None)
         blocking = []
-        if auth == "API key":
+        if auth == "API key" and not self.subscription_only:
             blocking.append(
                 "codex is logged in with an API key, so every call is billed per token. "
                 "Run `codex login` to use your ChatGPT subscription instead."
@@ -290,7 +329,8 @@ class CodexCliTeacher(_CliTeacher):
             argv.append("-")  # read the prompt from stdin
 
             prompt = f"{system}\n\n---\n\n{user}"
-            proc = _run(argv, stdin=prompt, timeout=self.timeout, cwd=workdir)
+            proc = _run(argv, stdin=prompt, timeout=self.timeout, cwd=workdir,
+                        env=self.child_env())
             if proc.returncode != 0:
                 # A quota problem is a *failure*; a success that merely mentions
                 # rate limiting is documentation, not an error.
@@ -325,10 +365,11 @@ class ClaudeCodeCliTeacher(_CliTeacher):
             return HealthReport(self.name, TeacherHealth.NOT_INSTALLED,
                                 detail="`claude` is not on PATH")
         try:
-            proc = _run([self.binary, "auth", "status", "--json"], timeout=45)
+            proc = _run([self.binary, "auth", "status", "--json"], timeout=45,
+                        env=self.child_env())
         except TeacherCallError as exc:
             return HealthReport(self.name, TeacherHealth.UNKNOWN_ERROR, version, str(exc))
-        warnings = metered_env_warnings("claude")
+        warnings = metered_env_warnings("claude", self.subscription_only)
         try:
             status = json.loads(proc.stdout or "{}")
         except json.JSONDecodeError:
@@ -341,7 +382,7 @@ class ClaudeCodeCliTeacher(_CliTeacher):
         auth_method = status.get("authMethod")
         key_source = status.get("apiKeySource")
         blocking = []
-        if key_source and key_source != "none":
+        if key_source and key_source != "none" and not self.subscription_only:
             blocking.append(
                 f"claude reports apiKeySource={key_source}: that credential is billed per "
                 f"token, even though authMethod={auth_method}. Run `unset {key_source}` in "
@@ -366,7 +407,8 @@ class ClaudeCodeCliTeacher(_CliTeacher):
             if schema:
                 argv += ["--json-schema", json.dumps(schema)]
 
-            proc = _run(argv, stdin=user, timeout=self.timeout, cwd=workdir)
+            proc = _run(argv, stdin=user, timeout=self.timeout, cwd=workdir,
+                        env=self.child_env())
             if proc.returncode != 0:
                 # A quota problem is a *failure*; a success that merely mentions
                 # rate limiting is documentation, not an error.

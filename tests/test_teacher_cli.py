@@ -30,8 +30,8 @@ def fake_cli(monkeypatch):
     calls = []
 
     def factory(responses):
-        def fake_run(argv, stdin=None, timeout=300, cwd=None):
-            calls.append({"argv": argv, "stdin": stdin, "cwd": cwd})
+        def fake_run(argv, stdin=None, timeout=300, cwd=None, env=None):
+            calls.append({"argv": argv, "stdin": stdin, "cwd": cwd, "env": env})
             for match, response in responses.items():
                 if match in " ".join(argv):
                     return response(argv) if callable(response) else response
@@ -71,11 +71,12 @@ def test_codex_logged_out_is_not_authenticated(fake_cli):
 
 
 def test_codex_api_key_login_is_a_billing_risk(fake_cli):
+    """An API-key *login* is billing the CLI cannot strip away from the env."""
     fake_cli({
         "--version": _proc(stdout="codex-cli 0.154.0"),
         "login status": _proc(stdout="Logged in using an API key"),
     })
-    report = CodexCliTeacher().health_check()
+    report = CodexCliTeacher(subscription_only=False).health_check()
     assert report.usable and report.metered_blocking
 
 
@@ -91,7 +92,8 @@ def test_claude_subscription_login_is_authenticated(fake_cli, monkeypatch):
     assert report.usable and not report.metered_blocking
 
 
-def test_claude_api_key_source_blocks_generation(fake_cli, monkeypatch):
+def test_claude_api_key_source_blocks_generation_when_not_stripped(fake_cli, monkeypatch):
+    """With subscription_only off, a billable configuration must refuse to run."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     fake_cli({
         "--version": _proc(stdout="2.1.273 (Claude Code)"),
@@ -99,10 +101,36 @@ def test_claude_api_key_source_blocks_generation(fake_cli, monkeypatch):
             {"loggedIn": True, "authMethod": "claude.ai",
              "apiProvider": "firstParty", "apiKeySource": "ANTHROPIC_API_KEY"})),
     })
-    teacher = ClaudeCodeCliTeacher()
+    teacher = ClaudeCodeCliTeacher(subscription_only=False)
     assert teacher.health_check().metered_blocking
     with pytest.raises(TeacherCallError, match="billed per token"):
         teacher.complete("sys", "user")
+
+
+def test_metered_credentials_are_stripped_from_the_subprocess_not_the_shell(fake_cli, monkeypatch):
+    """The default path: the key stays in the user's shell, the child never sees it."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    calls = fake_cli({
+        "--version": _proc(stdout="2.1.273"),
+        "auth status": _proc(stdout=json.dumps(
+            {"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "pro"})),
+        "-p": _proc(stdout=json.dumps({"result": "{}"})),
+    })
+    teacher = ClaudeCodeCliTeacher()
+    assert teacher.subscription_only
+    assert not teacher.health_check().metered_blocking
+    teacher.complete("sys", "user")
+    child = next(c for c in calls if "-p" in c["argv"])
+    assert "ANTHROPIC_API_KEY" not in child["env"], "child must not inherit the key"
+    import os
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-test", "the shell must be untouched"
+
+
+def test_allow_metered_env_keeps_the_credentials(fake_cli, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    teacher = ClaudeCodeCliTeacher(allow_metered_env=True)
+    assert not teacher.subscription_only
+    assert teacher.child_env() is None
 
 
 def test_allow_metered_env_overrides_the_block(fake_cli, monkeypatch):
