@@ -1,0 +1,45 @@
+# Qwen2.5-0.5B on a 16 GB machine.
+#
+# Two changes from the 8 GB profile, and both are diagnostic as much as they
+# are about capacity:
+#   * float32 removes fp16 numerics from the list of suspects for the v2
+#     training divergence (see NEXT_SESSION.md);
+#   * max_seq_length 2048 keeps 96% of the real examples instead of 79%, so the
+#     dataset is no longer silently truncated to what the hardware allowed.
+#
+#   huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct \
+#       --local-dir artifacts/base/Qwen2.5-0.5B-Instruct
+
+base_model: artifacts/base/Qwen2.5-0.5B-Instruct
+revision: null
+trust_remote_code: false
+
+max_seq_length: 2048
+dtype: float32
+device_map: auto
+attn_implementation: null
+
+quantization:
+  enabled: false
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  task_type: CAUSAL_LM
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  modules_to_save: []
+
+generation:
+  max_new_tokens: 320
+  temperature: 0.0
+  top_p: 1.0
+  repetition_penalty: 1.05
+
+export:
+  merged_dir: artifacts/v2-real/merged
+  gguf_dir: artifacts/v2-real/gguf
+  outtype: f16
+  quantizations: [Q4_K_M, Q5_K_M, Q8_0]
+  primary_quantization: Q4_K_M

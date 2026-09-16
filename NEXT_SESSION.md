@@ -1,13 +1,64 @@
 # Resume here
 
-State at the end of 2026-09-16. Six commits, clean tree, 119 tests passing,
+State at the end of 2026-09-16. Seven commits, clean tree, 119 tests passing,
 nothing running.
 
 ```bash
 cd docmind-model
 .venv/bin/python -m pytest tests/ -q          # expect 119 passed
-git log --oneline | head -6
+git log --oneline | head -7
 ```
+
+---
+
+## 0. Moving to the 16 GB machine
+
+**The repository has no git remote.** Copy the whole `docmind-model/` directory,
+`.git` included (1.6 MB), or push it somewhere first. Cloning is not an option
+until a remote exists.
+
+Then move the artefacts git does not track:
+
+```bash
+./scripts/export_bundle.sh ~/Desktop/docmind-model-essentials.tar.gz   # ~700 KB
+```
+
+That carries the teacher cache, the v2 dataset and the staged corpus. The cache
+is subscription quota already spent -- 53 responses that would otherwise cost
+hours to regenerate. Add `--full` to also carry the v1 adapter, the v1 GGUF and
+the downloaded base model (~1.8 GB); all three are recreatable, so move them
+only if that is cheaper than rebuilding.
+
+On the new machine:
+
+```bash
+tar -xzf docmind-model-essentials.tar.gz -C docmind-model/
+cd docmind-model
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python scripts/doctor.py          # reports which profile fits
+.venv/bin/python -m pytest tests/ -q        # expect 119 passed
+
+# only if you did not bundle --full
+huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct \
+    --local-dir artifacts/base/Qwen2.5-0.5B-Instruct
+```
+
+`scripts/doctor.py` checks Python, RAM, disk, every dependency, the accelerator,
+both teacher CLIs and their auth, Node, and which artefacts are present -- then
+names the training profile that fits the memory it found.
+
+**What changes with 16 GB.** Two constraints that shaped every decision on the
+8 GB machine disappear, and both were suspects in the training divergence:
+
+| | 8 GB | 16 GB |
+|---|---|---|
+| dtype | `float16` (fp32 OOMs) | `float32` |
+| max_seq_length | 1536, keeping 79% of examples | 2048, keeping 96% |
+| profile | `model.local-0.5b.yaml` | `model.local-0.5b-16gb.yaml` |
+
+Use `configs/model.local-0.5b-16gb.yaml` + `configs/training.v2-16gb.yaml`.
+They already carry the lower learning rate and larger batch that section 1
+proposes, so the first probe tests all three changes at once.
 
 ---
 
@@ -41,30 +92,31 @@ The live hypothesis, and why:
   With `gradient_accumulation_steps: 4` that is ~280 supervised tokens per
   optimizer step — a very noisy gradient at `learning_rate: 2e-4`.
 
-Next step, in this order:
+Next step on the 16 GB machine -- probe before committing to a full run:
 
 ```bash
-# probe 12 steps at a lower LR and a larger batch, watch the loss trend
-sed -e 's|^learning_rate: .*|learning_rate: 5.0e-5|' \
-    -e 's|^gradient_accumulation_steps: .*|gradient_accumulation_steps: 8|' \
-    -e 's|^logging_steps: .*|logging_steps: 2|' \
-    configs/training.v2-real.yaml > /tmp/probe-lr.yaml
-
 .venv/bin/python -u -m src.training.train \
-    --model-config configs/model.local-0.5b.yaml \
-    --training-config /tmp/probe-lr.yaml \
+    --model-config configs/model.local-0.5b-16gb.yaml \
+    --training-config configs/training.v2-16gb.yaml \
     --dataset-config configs/dataset.real.yaml \
     --max-steps 12 --output-dir artifacts/probe-lr
 ```
 
-Success criterion: loss trending below 5.23 (the base model's score). The probe
-was started once and killed for being slow — at 1536 tokens with accumulation 8
-a step takes ~200 s, so 12 steps is ~40 minutes. Run it in the background.
+**Success criterion: loss trending below 5.233**, the base model's score on the
+same validation set. Anything above that means training is still making the
+model worse. Re-measure that baseline first on the new machine, since float32
+will shift it -- the snippet that produced 5.233 is in `scripts/doctor.py`'s
+sibling command in section 3 of this file, or reuse
+`src.training.data.encode_dataset` with the base model and no adapter.
 
-If a lower LR does not fix it, the next suspects are MPS fp16 numerics at 1536
-tokens (try `dtype: float32` with `max_seq_length: 1024` to trade coverage for
-stability) and the tiny supervised-token density (more data fixes that by
-itself).
+The 16 GB profile changes three things at once (float32, 2048 tokens, lower LR
+with a larger batch). That is deliberate for the first probe -- if it converges,
+the blocker is gone. Only then vary them one at a time to learn which mattered,
+because the answer decides whether the 1.5B run needs the same treatment.
+
+If it still diverges with all three changed, the remaining suspect is the
+supervised-token density itself (5-7% against the demo corpus's 18-19%), which
+finishing the dataset fixes on its own -- so do section 2 first and retry.
 
 ---
 
@@ -192,4 +244,7 @@ Performance, for reference: `gpu: metal`, load 805-887 ms, TTFT 212-608 ms,
 | teacher cache (53 requests) | `data/cache/teacher/` |
 | v1 adapter and GGUF | `artifacts/adapter-0.5b/`, `artifacts/export/gguf-0.5b/` |
 | GGUF copied for the app | `../models/docmind-0.5b-v1-demo-Q4_K_M.gguf` |
+| migration bundle | `scripts/export_bundle.sh` |
+| environment check | `scripts/doctor.py` |
+| 16 GB profiles | `configs/model.local-0.5b-16gb.yaml`, `configs/training.v2-16gb.yaml` |
 | teacher CLI facts and costs | `docs/teacher-cli.md` |

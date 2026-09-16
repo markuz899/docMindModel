@@ -1,0 +1,49 @@
+# v2 training on 16 GB. Carries the two changes the 8 GB run could not make.
+#
+# learning_rate and gradient_accumulation_steps are the open hypothesis for the
+# divergence measured on 2026-09-16 (base eval_loss 5.23, v2 after one epoch
+# 6.20). On real data only 5-7% of tokens are supervised, against 18-19% on the
+# demo corpus, so the gradient is far noisier: 2e-4 with an effective batch of 4
+# ran with grad_norm 10-12 against v1's ~2. Lower the rate, enlarge the batch.
+#
+# Verify before committing to a full run: 12 steps should trend below 5.23.
+
+output_dir: artifacts/v2-real/adapter
+run_name: docmind-qwen2.5-0.5b-lora-v2-real-16gb
+seed: 42
+
+num_train_epochs: 3
+max_steps: -1
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+weight_decay: 0.01
+max_grad_norm: 1.0
+optim: adamw_torch
+
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 8
+gradient_checkpointing: true
+
+bf16: auto
+fp16: auto
+
+logging_steps: 2
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 2
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+resume_from_checkpoint: null
+
+completion_only_loss: true
+dataloader_num_workers: 0
+report_to: []
+
+skip_overlong: true
+max_seq_length: 2048   # keeps 96% of the real examples
+
+# Harmless on CUDA; on MPS it is what keeps step time flat.
+empty_cache_steps: 1
