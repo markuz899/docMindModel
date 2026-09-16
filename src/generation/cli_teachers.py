@@ -8,7 +8,7 @@ credentials -- authentication is the user's business, done outside this repo.
 
 Flags here were read from the installed CLIs (`codex exec --help`,
 `claude --help`) rather than recalled; see docs/teacher-cli.md for the exact
-versions this was verified against.
+versions this was verified against and the measured cost of a run.
 
 Two rules that are not negotiable:
   * the teacher runs read-only, with no tools and no access to this repository;
@@ -95,6 +95,29 @@ _STREAM_TAIL_CHARS = 2000
 def looks_like_usage_limit(text: str) -> bool:
     lowered = (text or "").lower()
     return any(pattern in lowered for pattern in _USAGE_LIMIT_PATTERNS)
+
+
+def usage_limit_excerpt(text: str) -> str:
+    """The lines that actually say you are out of quota.
+
+    The surrounding output is the echoed prompt, so slicing by offset shows
+    someone's documentation instead of the error. Match on the line.
+    """
+    lowered = (text or "").lower()
+    lines = [
+        line.strip()
+        for line in (text or "").splitlines()
+        if any(pattern in line.lower() for pattern in _USAGE_LIMIT_PATTERNS)
+    ]
+    if lines:
+        # de-duplicate: CLIs often print the same error to both streams
+        seen, unique = set(), []
+        for line in lines:
+            if line not in seen:
+                seen.add(line)
+                unique.append(line)
+        return " | ".join(unique)[:500]
+    return lowered[-300:]
 
 
 def failure_text(proc: subprocess.CompletedProcess) -> str:
@@ -273,7 +296,7 @@ class CodexCliTeacher(_CliTeacher):
                 # rate limiting is documentation, not an error.
                 detail = failure_text(proc)
                 if looks_like_usage_limit(detail):
-                    raise TeacherUsageLimit(f"codex usage limit: {detail[:400]}")
+                    raise TeacherUsageLimit(usage_limit_excerpt(detail))
                 raise TeacherCallError(
                     f"codex exec failed (exit {proc.returncode}): {detail[:600]}"
                 )
@@ -349,7 +372,7 @@ class ClaudeCodeCliTeacher(_CliTeacher):
                 # rate limiting is documentation, not an error.
                 detail = failure_text(proc)
                 if looks_like_usage_limit(detail):
-                    raise TeacherUsageLimit(f"claude usage limit: {detail[:400]}")
+                    raise TeacherUsageLimit(usage_limit_excerpt(detail))
                 raise TeacherCallError(
                     f"claude -p failed (exit {proc.returncode}): {detail[:600]}"
                 )

@@ -1,0 +1,83 @@
+# Dataset v2: generated from real project documentation by a local teacher CLI.
+# Kept separate from configs/dataset.yaml so the v1 demo dataset, and the
+# published v1 results that depend on it, stay reproducible.
+# Dataset layout, split policy, quality gates and teacher-generation settings.
+
+raw_dir: data/raw
+generated_dir: data/generated
+train_path: data/real/train/train.jsonl
+validation_path: data/real/validation/validation.jsonl
+test_path: data/real/test/test.jsonl
+version: 2.0.0
+
+split:
+  train: 0.8
+  validation: 0.1
+  test: 0.1
+  # Group-aware split: all examples from one project land in the same split,
+  # so the model is measured on documentation it has never seen.
+  group_by: project
+  near_duplicate_threshold: 0.9   # token-Jaccard above this -> near duplicate
+
+quality:
+  min_question_chars: 10
+  max_question_chars: 500
+  min_answer_chars: 20
+  max_answer_chars: 4000
+  max_answer_context_ratio: 1.5   # only applies above long_answer_min_chars
+  long_answer_min_chars: 1200     # below this an answer cannot be "too long"
+  min_groundedness: 0.15          # prose overlap floor (language-sensitive, outliers only)
+  min_technical_groundedness: 0.75 # prose-level drift detector; identifiers are gated separately
+  max_unsupported_identifiers: 0  # invented class/route/table names -> reject
+  max_unsupported_identifiers_refusal: 3  # a refusal may name the missing topic
+  require_citation_when_answerable: true
+
+chunking:
+  min_heading_level: 1
+  max_heading_level: 4
+  min_chunk_chars: 80
+  max_chunk_chars: 4000
+
+dedup:
+  enabled: true
+  question_similarity: 0.82       # token-Jaccard above this = near-duplicate question
+  # Must be >= generation.examples_per_teacher_call, otherwise every batch has
+  # its tail discarded: at 4 with a batch of 5, one in five examples was thrown
+  # away before it was ever looked at.
+  per_context_limit: 6            # at most N questions kept per identical context
+
+generation:
+  # auto = first local CLI that is installed AND authenticated on a subscription
+  # (codex, then claude). There is deliberately no fallback to a metered API.
+  teacher: auto
+  model: null                     # null = the CLI's own default model
+  timeout_s: 300
+
+  # One CLI invocation produces several examples: 3000 examples at 5 per call is
+  # ~600 subprocesses instead of 3000.
+  examples_per_teacher_call: 5
+  max_teacher_calls: null
+  concurrency: 1                  # keep at 1-2: quota and reproducibility first
+
+  cache_enabled: true
+  cache_dir: data/cache/teacher
+
+  # Target dataset shape (normalised).
+  answerability:
+    full: 0.55
+    partial: 0.15
+    none: 0.20
+    noisy: 0.10
+
+  context_sizes: [2, 3, 4, 5]
+  distractor_ratio: 0.35          # share of contexts that get irrelevant sources
+  contradiction_ratio: 0.08       # share asked to surface a documented conflict
+  max_contexts: 600
+  seed: 7
+
+  # --- retained for the demo pipeline and older configs ---
+  provider: mock
+  questions_per_context: 2
+  unanswerable_ratio: 0.25
+  temperature: 0.4
+  max_output_tokens: 4000

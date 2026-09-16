@@ -235,3 +235,19 @@ def test_run_state_survives_a_restart(tmp_path):
 
     fresh = RunState.load(tmp_path / "s.json", resume=False)
     assert not fresh.done("bundle-1"), "without --resume the run starts over"
+
+
+def test_usage_limit_message_shows_the_error_not_the_echoed_prompt():
+    """Observed: the run stopped correctly but reported someone's documentation.
+
+    codex echoes the whole prompt, so slicing the output by offset shows the
+    tail of the prompt. The message must quote the line that matched.
+    """
+    from src.generation.cli_teachers import usage_limit_excerpt
+
+    noise = "\n".join(f"[doc-{i}.md - Section] documentation body" for i in range(200))
+    real = "ERROR: You've hit your usage limit. Try again at Sep 17th, 3:35 AM."
+    excerpt = usage_limit_excerpt(f"{noise}\n{real}\n{real}")
+    assert "usage limit" in excerpt.lower()
+    assert "documentation body" not in excerpt
+    assert excerpt.count("hit your usage limit") == 1, "duplicate stream output collapsed"

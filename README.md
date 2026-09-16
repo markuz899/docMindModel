@@ -293,8 +293,36 @@ not memorised phrasings.
 ## Dataset generation from real docs
 
 ```bash
-python scripts/generate_dataset.py --docs /path/to/your/docs --provider mock
+# what is installed, authenticated, and would anything be billed?
+python -m src.generation.generate --health-check
+
+# stage several projects into one corpus (the split holds out whole projects)
+python scripts/stage_corpus.py --out artifacts/corpus/real \
+    ~/code/service-a/docs ~/code/service-b/docs
+
+# generate, on a subscription CLI, never a metered API
+python -m src.generation.generate --docs artifacts/corpus/real --teacher auto
+
+# continue after a usage limit -- nothing already generated is re-requested
+python -m src.generation.generate --docs artifacts/corpus/real --resume
 ```
+
+Ingestion walks `.md`, `.mdx` and `.txt` recursively, skips build and dependency
+directories (`node_modules`, `dist`, `.venv`, ...), and records each section's
+relative path, heading ancestry and content hash.
+
+Quota is the scarce resource, so the pipeline is built around not wasting it:
+
+| | |
+|---|---|
+| **batching** | one CLI call yields 5 examples, so 3000 examples is ~600 subprocesses, not 3000 |
+| **caching** | keyed on provider, CLI version, model, prompt version, the documentation and the options; an identical request is never sent twice, across runs |
+| **resume** | a run stopped by a usage limit checkpoints and continues with `--resume` |
+| **usage limits** | recognised, reported and obeyed -- never retried in a loop |
+
+The cache is what makes it safe to fix the quality gate and re-score hundreds of
+calls' worth of output without spending anything: that happened during this
+repository's first real run, and recovered 5 wrongly-rejected examples for free.
 
 Pipeline (`src/generation/`):
 
@@ -315,22 +343,30 @@ overridden on the command line.
 
 ## Teacher distillation
 
-Providers are behind a two-method interface (`src/generation/providers.py`):
-
-| Provider | Install | Key |
+| Provider | What it is | Cost |
 |---|---|---|
-| `mock` | — | none; deterministic, offline, used by CI |
-| `anthropic` | `pip install anthropic` | `ANTHROPIC_API_KEY` |
-| `openai` | `pip install openai` | `OPENAI_API_KEY` |
+| `codex` | OpenAI Codex CLI, `codex exec` | your ChatGPT subscription |
+| `claude` | Claude Code CLI, `claude -p` | your Claude subscription |
+| `mock` | deterministic, offline, used by CI | none |
+| `openai` / `anthropic` | the metered APIs | **billed per token** |
 
-Keys are optional and read from the environment; nothing fails at import time if
-they are absent.
+`--teacher auto` tries the local CLIs in order and stops at the first one that
+is installed and authenticated on a subscription. It never selects a metered
+provider, and **a CLI failure never falls back to an API** -- running out of
+quota stops the run rather than quietly starting to charge you.
 
-```bash
-export ANTHROPIC_API_KEY=...
-python scripts/generate_dataset.py --docs ./docs --provider anthropic \
-    --model claude-opus-5 --max-contexts 200 --questions-per-context 2
-```
+The teacher runs read-only, with every tool disabled, in a throwaway temp
+directory. It sees the documentation blocks of the current batch and nothing
+else: not this repository, not your source code. Credentials are never read,
+copied or written -- you log in with `codex login` / `claude auth login`,
+outside this repo.
+
+Both CLIs can also authenticate against a metered API key, which is easy to
+trigger by accident: a shell exporting `ANTHROPIC_API_KEY` bills Claude Code per
+token even when you are logged in with claude.ai. That configuration is detected
+and **blocks the run** until `--allow-metered-env` is passed.
+
+Exact flags, versions and measured cost per run: [`docs/teacher-cli.md`](docs/teacher-cli.md).
 
 The teacher is asked for `question`, `answer`, `category`, `difficulty`,
 `answerability`, `relevant_sources` and `must_include` — and is explicitly told
@@ -460,6 +496,19 @@ identical numbers on a laptop and in CI (`src/evaluation/metrics.py`):
 | 5 | `hallucinated_rate` | **headline metric** — fabricated citation, invented identifier, forbidden fact, or failing to refuse |
 | 6 | `relevant_source_usage` | share of citations that hit gold sources; `distractor_citations` counts the rest |
 | 7 | `conciseness` | length against the reference, penalised above 1.5× |
+
+Plus an **answerability confusion matrix** and **Useful Answer Rate**
+(`src/evaluation/answerability.py`), because hallucination rate alone is a trap:
+
+|  | predicted answer | predicted refusal |
+|---|---|---|
+| **an answer exists** | TP | FN — over-refusal |
+| **no answer exists** | FP — hallucination | TN |
+
+A model that refuses everything scores a perfect 0.0 hallucination rate and is
+worthless. Useful Answer Rate — the share of answerable questions that got a
+substantive, grounded, cited answer — is what exposes that, and it is measured
+on answerable questions only, so refusing correctly cannot inflate it.
 
 ```bash
 python -m src.evaluation.evaluate --adapter artifacts/adapter \

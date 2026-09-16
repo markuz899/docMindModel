@@ -1,0 +1,184 @@
+{
+  "dataset_version": "2.0.0-preview",
+  "built_on": "2026-09-16",
+  "sources": [
+    "artifacts/corpus/real-dataset.jsonl"
+  ],
+  "split_policy": {
+    "train": 0.8,
+    "validation": 0.1,
+    "test": 0.1,
+    "group_by": "project",
+    "near_duplicate_threshold": 0.9
+  },
+  "quality_gate": {
+    "min_question_chars": 10,
+    "max_question_chars": 500,
+    "min_answer_chars": 20,
+    "max_answer_chars": 4000,
+    "max_answer_context_ratio": 1.5,
+    "long_answer_min_chars": 1200,
+    "min_groundedness": 0.15,
+    "min_technical_groundedness": 0.75,
+    "max_unsupported_identifiers": 0,
+    "max_unsupported_identifiers_refusal": 3,
+    "require_citation_when_answerable": true
+  },
+  "dedup": {
+    "enabled": true,
+    "question_similarity": 0.82,
+    "per_context_limit": 6
+  },
+  "rejected_by_quality_gate": 0,
+  "reserved_for_manual_benchmark": 0,
+  "totals": {
+    "count": 213,
+    "by_answerability": {
+      "full": 162,
+      "partial": 28,
+      "none": 23
+    },
+    "by_category": {
+      "bug_investigation": 33,
+      "partially_answerable": 27,
+      "api": 25,
+      "unanswerable": 23,
+      "contradictory_context": 17,
+      "architecture": 12,
+      "configuration": 11,
+      "integration": 10,
+      "dependency": 9,
+      "data_flow": 9,
+      "error_handling": 9,
+      "how_it_works": 9,
+      "database": 8,
+      "multi_source": 7,
+      "service": 4
+    },
+    "by_project": {
+      "odysseus": 43,
+      "homehub": 75,
+      "botforge": 39,
+      "iad-emission-manager-fastify": 5,
+      "nightly-doc-worker": 18,
+      "nltAi": 25,
+      "logAi": 8
+    },
+    "with_distractors": 76,
+    "avg_sources": 4.28,
+    "avg_answer_chars": 291,
+    "teachers": {
+      "codex": 213
+    }
+  },
+  "splits": {
+    "train": {
+      "count": 161,
+      "by_answerability": {
+        "full": 118,
+        "none": 19,
+        "partial": 24
+      },
+      "by_category": {
+        "partially_answerable": 23,
+        "bug_investigation": 22,
+        "api": 20,
+        "unanswerable": 19,
+        "contradictory_context": 13,
+        "configuration": 10,
+        "dependency": 8,
+        "integration": 7,
+        "how_it_works": 7,
+        "architecture": 7,
+        "error_handling": 7,
+        "database": 6,
+        "data_flow": 5,
+        "multi_source": 4,
+        "service": 3
+      },
+      "by_project": {
+        "nltAi": 19,
+        "botforge": 32,
+        "homehub": 73,
+        "odysseus": 37
+      },
+      "with_distractors": 61,
+      "avg_sources": 4.37,
+      "avg_answer_chars": 293,
+      "teachers": {
+        "codex": 161
+      }
+    },
+    "validation": {
+      "count": 21,
+      "by_answerability": {
+        "full": 20,
+        "partial": 1
+      },
+      "by_category": {
+        "bug_investigation": 5,
+        "architecture": 3,
+        "data_flow": 2,
+        "error_handling": 2,
+        "api": 2,
+        "database": 2,
+        "integration": 1,
+        "how_it_works": 1,
+        "contradictory_context": 1,
+        "partially_answerable": 1,
+        "multi_source": 1
+      },
+      "by_project": {
+        "odysseus": 6,
+        "nltAi": 6,
+        "homehub": 2,
+        "botforge": 7
+      },
+      "with_distractors": 10,
+      "avg_sources": 4.43,
+      "avg_answer_chars": 322,
+      "teachers": {
+        "codex": 21
+      }
+    },
+    "test": {
+      "count": 31,
+      "by_answerability": {
+        "full": 24,
+        "none": 4,
+        "partial": 3
+      },
+      "by_category": {
+        "bug_investigation": 6,
+        "unanswerable": 4,
+        "contradictory_context": 3,
+        "partially_answerable": 3,
+        "api": 3,
+        "data_flow": 2,
+        "multi_source": 2,
+        "integration": 2,
+        "architecture": 2,
+        "how_it_works": 1,
+        "service": 1,
+        "dependency": 1,
+        "configuration": 1
+      },
+      "by_project": {
+        "nightly-doc-worker": 18,
+        "logAi": 8,
+        "iad-emission-manager-fastify": 5
+      },
+      "with_distractors": 5,
+      "avg_sources": 3.71,
+      "avg_answer_chars": 260,
+      "teachers": {
+        "codex": 31
+      }
+    }
+  },
+  "paths": {
+    "train": "/Users/marcoliberati/Desktop/PROJ0/docmind/docmind-model/data/real/train/train.jsonl",
+    "validation": "/Users/marcoliberati/Desktop/PROJ0/docmind/docmind-model/data/real/validation/validation.jsonl",
+    "test": "/Users/marcoliberati/Desktop/PROJ0/docmind/docmind-model/data/real/test/test.jsonl"
+  }
+}
