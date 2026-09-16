@@ -19,6 +19,9 @@ from src.dataset.build import build_all
 from src.dataset.io import write_jsonl
 from src.dataset.split import split_dataset
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from manual_benchmark import held_out_ids  # noqa: E402
+
 
 def summarise(examples) -> dict:
     def tally(attr):
@@ -52,6 +55,15 @@ def main() -> int:
         noise_variants=args.noise_variants,
     )
     kept, rejected = built["kept"], built["rejected"]
+
+    # Anything a human has reviewed -- approved or rejected -- is benchmark
+    # material and must never be trained on.
+    reserved = held_out_ids()
+    if reserved:
+        before = len(kept)
+        kept = [e for e in kept if e.id not in reserved]
+        if before != len(kept):
+            print(f"held out {before - len(kept)} example(s) reserved for the manual benchmark")
 
     print(f"built {len(kept)} examples ({len(rejected)} rejected by the quality gate)")
     for report in rejected:
