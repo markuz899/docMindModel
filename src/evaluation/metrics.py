@@ -18,8 +18,10 @@ from collections import defaultdict
 from statistics import mean
 
 from src.dataset.schema import Answerability, Example
+from src.evaluation.answerability import answerability_report
 from src.text import (
     keyword_recall,
+    leads_with_refusal,
     looks_like_refusal,
     normalize,
     parse_citations,
@@ -46,8 +48,11 @@ def evaluate_example(example: Example, prediction: str) -> dict:
 
     # 1. answer correctness ------------------------------------------------
     f1 = token_f1(prediction, example.answer)
-    kw = keyword_recall(prediction, example.must_include)
-    correctness = 0.5 * f1 + 0.5 * kw if example.must_include else f1
+    # `facts` is what a real teacher emits; `must_include` is the hand-written
+    # equivalent. Either one makes key-fact recall meaningful.
+    key_facts = example.must_include or example.facts
+    kw = keyword_recall(prediction, key_facts)
+    correctness = 0.5 * f1 + 0.5 * kw if key_facts else f1
 
     refused = looks_like_refusal(prediction)
 
@@ -84,7 +89,18 @@ def evaluate_example(example: Example, prediction: str) -> dict:
     # Flagging a gap inside an otherwise substantive answer is correct
     # behaviour, so only a *wholesale* refusal (no usable citation, no key
     # facts) counts as refusing to answer an answerable question.
-    wholesale_refusal = refused and not resolvable and kw < 0.5
+    # `keyword_recall` returns 1.0 for an empty key-fact list, so that clause
+    # must only apply when the example actually declares key facts -- otherwise
+    # a pure refusal never registers as one.
+    has_key_facts = bool(key_facts)
+    delivered_key_facts = kw >= 0.5 if has_key_facts else False
+    # A refusal that also cites what *is* documented is still a refusal, so the
+    # test is where the decline appears, not whether citations exist.
+    wholesale_refusal = (
+        refused
+        and not delivered_key_facts
+        and (leads_with_refusal(prediction) or not resolvable)
+    )
     if answerability == Answerability.FULL:
         refusal_correct = not wholesale_refusal
         false_refusal = wholesale_refusal
@@ -131,6 +147,7 @@ def evaluate_example(example: Example, prediction: str) -> dict:
         "answer_correctness": round(correctness, 4),
         "token_f1": round(f1, 4),
         "key_fact_recall": round(kw, 4),
+        "_has_key_facts": has_key_facts,
         "groundedness": round(grounded, 4),
         "lexical_groundedness": round(lexical_groundedness(prediction, context_text), 4),
         "unsupported_identifiers": sorted(unsupported),
@@ -139,6 +156,8 @@ def evaluate_example(example: Example, prediction: str) -> dict:
         "citation_f1": round(citation_f1, 4),
         "fabricated_citations": [f"{s} — {h}" for s, h in fabricated],
         "misattributed_citations": [f"{s} — {h}" for s, h in misattributed],
+        "refused": bool(refused),
+        "wholesale_refusal": bool(wholesale_refusal),
         "refusal_correct": bool(refusal_correct),
         "false_refusal": bool(false_refusal),
         "hallucinated": hallucinated,
@@ -170,6 +189,8 @@ def aggregate(rows: list[dict]) -> dict:
     out["distractor_citations_per_answer"] = round(
         mean(r["distractor_citations"] for r in rows), 4
     )
+    out["answerability"] = answerability_report(rows)
+    out["useful_answer_rate"] = out["answerability"]["useful_answer_rate"]
     unanswerable = [r for r in rows if r["answerable"] == "none"]
     if unanswerable:
         out["hallucination_rate_unanswerable"] = round(

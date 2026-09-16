@@ -200,6 +200,17 @@ def looks_like_refusal(text: str) -> bool:
     return any(marker in t for marker in _REFUSAL_MARKERS)
 
 
+def leads_with_refusal(text: str, window: int = 160) -> bool:
+    """Does the answer *open* by declining?
+
+    A real refusal leads with the gap ("the documentation does not contain..."),
+    while a substantive answer that happens to flag a caveat raises it later.
+    That position is what separates "I cannot answer" from "here is the answer,
+    and note this one unknown" -- and neither the words nor the citations do.
+    """
+    return looks_like_refusal(normalize(text)[:window])
+
+
 def flags_contradiction(text: str) -> bool:
     t = normalize(text)
     return any(marker in t for marker in _CONTRADICTION_MARKERS)
