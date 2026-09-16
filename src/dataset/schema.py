@@ -14,20 +14,38 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class Category(str, Enum):
-    """The twelve question shapes the model has to handle."""
+    """Question shapes the model has to handle.
+
+    The first block is the current vocabulary. The legacy block is kept so the
+    v1 demo dataset still validates unchanged -- `route`/`api`,
+    `dependencies`/`dependency`, `integrations`/`integration` and
+    `errors`/`error_handling` are the same idea under two spellings, and
+    rewriting the shipped v1 data to unify them would invalidate a published
+    experiment for no benefit.
+    """
 
     HOW_IT_WORKS = "how_it_works"
-    ROUTE = "route"
-    BUG_INVESTIGATION = "bug_investigation"
-    DEPENDENCIES = "dependencies"
-    DATA_FLOW = "data_flow"
+    API = "api"
+    SERVICE = "service"
+    DEPENDENCY = "dependency"
+    ARCHITECTURE = "architecture"
     DATABASE = "database"
+    DATA_FLOW = "data_flow"
     CONFIGURATION = "configuration"
+    INTEGRATION = "integration"
+    ERROR_HANDLING = "error_handling"
+    BUG_INVESTIGATION = "bug_investigation"
+    MULTI_SOURCE = "multi_source"
+    PARTIALLY_ANSWERABLE = "partially_answerable"
+    UNANSWERABLE = "unanswerable"
+    CONTRADICTORY_CONTEXT = "contradictory_context"
+
+    # --- legacy spellings, v1 demo dataset ---
+    ROUTE = "route"
+    DEPENDENCIES = "dependencies"
     INTEGRATIONS = "integrations"
     ERRORS = "errors"
-    ARCHITECTURE = "architecture"
     COMPARISON = "comparison"
-    MULTI_SOURCE = "multi_source"
 
 
 class Difficulty(str, Enum):
@@ -54,6 +72,13 @@ class ContextChunk(BaseModel):
     content: str = Field(min_length=1)
     # Optional retrieval metadata; ignored by training, used by the noise tests.
     relevant: bool | None = None
+    # Provenance for real corpora. None (not []) when unset, so existing
+    # datasets serialise byte-identically.
+    relative_path: str | None = None
+    heading_path: list[str] | None = Field(
+        default=None, description="Heading ancestry, outermost first"
+    )
+    content_hash: str | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -92,6 +117,18 @@ class Example(BaseModel):
     must_not_include: list[str] = Field(
         default_factory=list, description="Facts absent from context; mentioning them is a hallucination"
     )
+    facts: list[str] = Field(
+        default_factory=list,
+        description="Atomic claims the answer makes, each supposed to be in the context",
+    )
+    unsupported_claims: list[str] = Field(
+        default_factory=list,
+        description="Claims the teacher itself flagged as not supported by the context",
+    )
+    teacher_metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Audit trail: provider, CLI version, prompt version, request hash, timestamp",
+    )
     tags: list[str] = Field(default_factory=list)  # e.g. distractor, contradiction, seed
     origin: str | None = None  # seed | teacher:<model> | synthetic
 
@@ -119,6 +156,9 @@ class Example(BaseModel):
             f"{c.citation()}\n{c.heading}\n{c.content}" for c in self.context
         )
 
+    # `relevant_sources` is the canonical name for what the teacher schema calls
+    # `required_sources`; the parser maps one onto the other rather than storing
+    # the same list twice.
     def relevant_keys(self) -> set[tuple[str, str]]:
         """Gold sources; falls back to chunks explicitly flagged relevant."""
         keys = set()

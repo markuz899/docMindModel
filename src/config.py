@@ -126,6 +126,12 @@ class SplitConfig(_Base):
     near_duplicate_threshold: float = 0.9
 
 
+class DedupConfig(_Base):
+    enabled: bool = True
+    question_similarity: float = 0.82   # token-Jaccard above this = duplicate
+    per_context_limit: int = 4          # max questions kept per identical context
+
+
 class QualityConfig(_Base):
     min_question_chars: int = 10
     max_question_chars: int = 500
@@ -147,17 +153,50 @@ class ChunkingConfig(_Base):
     max_chunk_chars: int = 4000
 
 
+class AnswerabilityMix(_Base):
+    """Target shape of the generated dataset. Normalised before use."""
+
+    full: float = 0.55
+    partial: float = 0.15
+    none: float = 0.20
+    noisy: float = 0.10
+
+    def weights(self) -> dict[str, float]:
+        raw = {"full": self.full, "partial": self.partial,
+               "none": self.none, "noisy": self.noisy}
+        total = sum(raw.values()) or 1.0
+        return {k: v / total for k, v in raw.items()}
+
+
 class GenerationPipelineConfig(_Base):
-    provider: Literal["mock", "openai", "anthropic"] = "mock"
-    model: str = "claude-opus-5"
+    # `auto` prefers a local, subscription-backed CLI and never falls back to a
+    # metered API. See src/generation/providers.py: select_teacher.
+    teacher: Literal["auto", "codex", "claude", "mock", "openai", "anthropic"] = "auto"
+    model: str | None = None
+    timeout_s: int = 300
     temperature: float = 0.4
-    max_output_tokens: int = 1500
-    questions_per_context: int = 2
-    max_contexts: int = 200
-    context_sizes: list[int] = Field(default_factory=lambda: [1, 2, 3, 4])
+    max_output_tokens: int = 4000
+
+    # Batching: one CLI invocation should yield several examples. 3000 examples
+    # at 5 per call is ~600 subprocesses, not 3000.
+    examples_per_teacher_call: int = 5
+    max_teacher_calls: int | None = None
+    concurrency: int = 1
+
+    cache_enabled: bool = True
+    cache_dir: str = "data/cache/teacher"
+
+    answerability: AnswerabilityMix = Field(default_factory=AnswerabilityMix)
+    context_sizes: list[int] = Field(default_factory=lambda: [2, 3, 4, 5])
     distractor_ratio: float = 0.35
-    unanswerable_ratio: float = 0.25
+    contradiction_ratio: float = 0.08
+    max_contexts: int = 600
     seed: int = 7
+
+    # --- retained for the demo pipeline / older configs ---
+    provider: Literal["mock", "openai", "anthropic", "codex", "claude"] = "mock"
+    questions_per_context: int = 2
+    unanswerable_ratio: float = 0.25
 
 
 class DatasetConfig(_Base):
@@ -169,6 +208,7 @@ class DatasetConfig(_Base):
     version: str = "0.1.0"
     split: SplitConfig = Field(default_factory=SplitConfig)
     quality: QualityConfig = Field(default_factory=QualityConfig)
+    dedup: DedupConfig = Field(default_factory=DedupConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     generation: GenerationPipelineConfig = Field(default_factory=GenerationPipelineConfig)
 

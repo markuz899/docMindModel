@@ -35,14 +35,43 @@ chunking:
   min_chunk_chars: 80
   max_chunk_chars: 4000
 
+dedup:
+  enabled: true
+  question_similarity: 0.82       # token-Jaccard above this = near-duplicate question
+  per_context_limit: 4            # at most N questions kept per identical context
+
 generation:
-  provider: mock                  # mock | openai | anthropic
-  model: claude-opus-5
-  temperature: 0.4
-  max_output_tokens: 1500
-  questions_per_context: 2
-  max_contexts: 200
-  context_sizes: [1, 2, 3, 4]
+  # auto = first local CLI that is installed AND authenticated on a subscription
+  # (codex, then claude). There is deliberately no fallback to a metered API.
+  teacher: auto
+  model: null                     # null = the CLI's own default model
+  timeout_s: 300
+
+  # One CLI invocation produces several examples: 3000 examples at 5 per call is
+  # ~600 subprocesses instead of 3000.
+  examples_per_teacher_call: 5
+  max_teacher_calls: null
+  concurrency: 1                  # keep at 1-2: quota and reproducibility first
+
+  cache_enabled: true
+  cache_dir: data/cache/teacher
+
+  # Target dataset shape (normalised).
+  answerability:
+    full: 0.55
+    partial: 0.15
+    none: 0.20
+    noisy: 0.10
+
+  context_sizes: [2, 3, 4, 5]
   distractor_ratio: 0.35          # share of contexts that get irrelevant sources
-  unanswerable_ratio: 0.25        # share of contexts asked for unanswerable questions
+  contradiction_ratio: 0.08       # share asked to surface a documented conflict
+  max_contexts: 600
   seed: 7
+
+  # --- retained for the demo pipeline and older configs ---
+  provider: mock
+  questions_per_context: 2
+  unanswerable_ratio: 0.25
+  temperature: 0.4
+  max_output_tokens: 4000

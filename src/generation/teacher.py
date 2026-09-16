@@ -164,7 +164,7 @@ def item_to_example(item: dict, bundle: ContextBundle, origin: str) -> Example |
     question, answer = (item.get("question") or "").strip(), (item.get("answer") or "").strip()
     if not question or not answer:
         return None
-    answerability = (item.get("answerability") or "full").lower()
+    answerability = (item.get("answerable") or item.get("answerability") or "full").lower()
     if answerability not in {"full", "partial", "none"}:
         answerability = "full"
     category = (item.get("category") or "how_it_works").lower()
@@ -179,7 +179,10 @@ def item_to_example(item: dict, bundle: ContextBundle, origin: str) -> Example |
             difficulty=difficulty,
             answerable=answerability,
             project=bundle.project,
-            relevant_sources=[str(s) for s in item.get("relevant_sources", []) if s],
+            relevant_sources=[
+                str(s) for s in (item.get("required_sources") or item.get("relevant_sources") or [])
+                if s
+            ],
             must_include=[str(s) for s in item.get("must_include", []) if s],
             tags=(["distractor"] if len(bundle.chunks) > len(bundle.relevant) else []),
             origin=origin,
