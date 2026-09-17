@@ -19,6 +19,7 @@ from src.generation.cli_teachers import (
     ClaudeCodeCliTeacher,
     CodexCliTeacher,
     HealthReport,
+    TeacherCallError,
     TeacherHealth,
 )
 
@@ -146,6 +147,136 @@ class OpenAIProvider(_SimpleProvider):
         return resp.choices[0].message.content or ""
 
 
+class SelfHostedProvider(_SimpleProvider):
+    """A self-hosted OpenAI-compatible endpoint (e.g. a local open-weight model).
+
+    Free to call -- not a metered API and not a subscription CLI -- so it is
+    never part of `--teacher auto` and must be selected explicitly with
+    `--teacher selfhosted`. Credentials and endpoint come from the environment
+    only, never hardcoded here:
+
+      DOCMIND_SELFHOSTED_URL   e.g. https://host/v1/chat/completions
+      DOCMIND_SELFHOSTED_MODEL e.g. qwythos-9b
+      DOCMIND_SELFHOSTED_AUTH  "user:password" for HTTP Basic auth (optional)
+
+    Weaker models need more hand-holding than the prompt in prompts.py gives
+    codex/claude, or they default to refusing everything and reciting the
+    QUESTION STYLE examples verbatim instead of writing new questions.
+    _ENRICHMENT below fixes both, measured against this project's own quality
+    gate (src/dataset/quality.py) on real bundles before this was wired in:
+    without it, 0/5 examples passed (no inline citation, wrong answerability);
+    with it, 10/10 passed across a plain bundle and a distractor+refusal one.
+    """
+
+    name = "selfhosted"
+
+    _ENRICHMENT = """
+
+IMPORTANT, READ CAREFULLY:
+* The example questions shown above in QUESTION STYLE are STYLE illustrations
+  from an unrelated fictitious project. Reusing any of them, verbatim or
+  reworded, is a defect. Every question must be about entities/files/behaviour
+  that actually appear in the documentation blocks below.
+* Follow the answerable/category plan for each numbered item EXACTLY. If an
+  item says answerable=full, the blocks below DO contain the fact -- find it
+  and answer it, don't default to a refusal. If an item says answerable=none,
+  the blocks do NOT contain it -- refuse and say what would be needed, don't
+  guess.
+* CITATION FORMAT -- checked mechanically, answers that fail it are discarded:
+  the `answer` string itself MUST contain the literal token
+  "[file — heading]" (with the em-dash "—", copied verbatim from the block
+  header) inline, at the point where that fact is used. Listing the source in
+  `required_sources` is NOT enough by itself. A "none" refusal has no citation
+  and that is correct -- do not invent one.
+
+WORKED EXAMPLE (fictitious project, for format only):
+  Blocks given:
+    [billing.md — Retry policy]
+    Failed webhook deliveries are retried 3 times with exponential backoff
+    starting at 30s, then marked dead-lettered.
+  Plan item: answerable=full, category=configuration
+  Good output for that item:
+    {
+      "question": "quante volte viene ritentata una webhook fallita?",
+      "answer": "Una webhook fallita viene ritentata 3 volte con backoff "
+        "esponenziale a partire da 30s, poi finisce in dead-letter "
+        "[billing.md — Retry policy].",
+      "category": "configuration",
+      "difficulty": "easy",
+      "answerable": "full",
+      "required_sources": ["billing.md#Retry policy"],
+      "facts": ["retried 3 times", "backoff starts at 30s", "dead-lettered after retries"],
+      "unsupported_claims": []
+    }
+"""
+
+    def __init__(self, model: str | None = None, temperature: float = 0.4,
+                 timeout: int = 300, **_: object) -> None:
+        self.url = os.environ.get("DOCMIND_SELFHOSTED_URL")
+        self.model = model or os.environ.get("DOCMIND_SELFHOSTED_MODEL")
+        if not self.url or not self.model:
+            raise RuntimeError(
+                "the selfhosted teacher needs DOCMIND_SELFHOSTED_URL and "
+                "DOCMIND_SELFHOSTED_MODEL set in the environment "
+                "(DOCMIND_SELFHOSTED_AUTH too, if the endpoint needs HTTP Basic auth)."
+            )
+        self.temperature = temperature
+        self.timeout = timeout or 300
+        self._auth_header = None
+        auth = os.environ.get("DOCMIND_SELFHOSTED_AUTH")
+        if auth:
+            import base64
+
+            self._auth_header = "Basic " + base64.b64encode(auth.encode()).decode()
+
+    def supports_structured_output(self) -> bool:
+        return True
+
+    def complete(self, system: str, user: str, schema: dict | None = None) -> str:
+        import json
+        import urllib.error
+        import urllib.request
+
+        body: dict = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system + self._ENRICHMENT},
+                {"role": "user", "content": user},
+            ],
+            "chat_template_kwargs": {"enable_thinking": False},
+            "temperature": self.temperature,
+        }
+        if schema:
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "examples", "schema": schema, "strict": True},
+            }
+        headers = {"Content-Type": "application/json"}
+        if self._auth_header:
+            headers["Authorization"] = self._auth_header
+        req = urllib.request.Request(
+            self.url, data=json.dumps(body).encode(), method="POST", headers=headers
+        )
+        # process() in pipeline.py only catches TeacherCallError / TeacherUsageLimit
+        # and documents itself as "never raises" -- a bare network exception here
+        # would crash the whole run instead of counting as one failed bundle.
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read())
+        except TimeoutError as exc:
+            raise TeacherCallError(f"selfhosted request timed out after {self.timeout}s") from exc
+        except urllib.error.URLError as exc:
+            raise TeacherCallError(f"selfhosted request failed: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise TeacherCallError(f"selfhosted returned invalid JSON: {exc}") from exc
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise TeacherCallError(
+                f"selfhosted returned an unexpected response shape: {exc}"
+            ) from exc
+
+
 class AnthropicProvider(_SimpleProvider):
     name = "anthropic"
 
@@ -176,6 +307,8 @@ _PROVIDERS = {
     "codex": CodexCliTeacher,
     "claude": ClaudeCodeCliTeacher,
     "mock": MockProvider,
+    # free, but not a subscription CLI -- opt-in only, never part of `auto`
+    "selfhosted": SelfHostedProvider,
     # metered, opt-in only
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,

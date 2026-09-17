@@ -48,7 +48,8 @@ def main() -> int:
     parser.add_argument("--docs", help="documentation root; subdirectories become projects")
     parser.add_argument("--config", default="configs/dataset.yaml")
     parser.add_argument("--teacher", default=None,
-                        choices=["auto", "codex", "claude", "mock", "openai", "anthropic"])
+                        choices=["auto", "codex", "claude", "mock", "selfhosted",
+                                 "openai", "anthropic"])
     parser.add_argument("--model", default=None, help="override the CLI's default model")
     parser.add_argument("--out", default=None)
     parser.add_argument("--resume", action="store_true",
