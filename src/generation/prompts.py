@@ -84,7 +84,7 @@ HARD RULES for every answer you write:
 6. If two blocks contradict each other, say the documentation is contradictory \
    and cite both. Never pick a winner.
 7. Write the answer in the same language as the question.
-8. Be concise and useful to a developer. No essays, no restating the whole block.
+8. ANSWER SHAPE. The model copies this, so it decides whether it can explain    at all. Lead with the direct answer in one sentence, then explain it: what    the blocks say, why it works that way, and what it means for the person    asking. Two to five short paragraphs; a markdown table when the blocks are    tabular; numbered steps when the question is "how do I". Never a bare span    copied out of a block, never a restatement of a block the question did not    ask about.
 
 QUESTION STYLE — this matters as much as the answers.
 Write questions the way a working developer actually types them, not the way a \

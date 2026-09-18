@@ -20,7 +20,10 @@ from typing import Any
 from src.config import resolve_path
 
 # Bump when the teacher prompt changes meaning; it invalidates every entry.
-PROMPT_VERSION = "2"
+# 3: rule 8 asks for an explanation with a shape instead of "be concise". v2
+#    answers averaged 332 chars of extracted span, and that is what the model
+#    learned to produce.
+PROMPT_VERSION = "3"
 
 
 @dataclass

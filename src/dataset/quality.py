@@ -57,7 +57,16 @@ def check_example(example: Example, cfg: QualityConfig | None = None) -> Report:
     report.metrics["answer_context_ratio"] = round(ratio, 3)
     # A faithful answer over a two-paragraph context is legitimately about as
     # long as its source; only long *and* disproportionate answers are rambling.
-    if len(answer) > cfg.long_answer_min_chars and ratio > cfg.max_answer_context_ratio:
+    # ponytail: a "structured-layout" example exists precisely to be longer than
+    # its context -- it adds headings, a table and a walkthrough on purpose, so
+    # the ratio measures its point rather than a defect. Drop the exemption if
+    # the tag ever ends up on ordinary extractive answers.
+    is_layout = "structured-layout" in example.tags
+    if (
+        not is_layout
+        and len(answer) > cfg.long_answer_min_chars
+        and ratio > cfg.max_answer_context_ratio
+    ):
         issues.append(
             f"answer rambles: {len(answer)} chars, {ratio:.2f}x the context"
         )

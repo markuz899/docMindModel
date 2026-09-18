@@ -32,7 +32,9 @@ lora:
   modules_to_save: []
 
 generation:
-  max_new_tokens: 320
+  # 320 truncated every structured-layout answer in the train set (median 468
+  # tokens, max 601), so eval scored answers cut off mid-table.
+  max_new_tokens: 768
   temperature: 0.0
   top_p: 1.0
   repetition_penalty: 1.05
