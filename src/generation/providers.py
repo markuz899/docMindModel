@@ -173,6 +173,16 @@ class SelfHostedProvider(_SimpleProvider):
     _ENRICHMENT = """
 
 IMPORTANT, READ CAREFULLY:
+* CITATION FORMAT -- THE SINGLE MOST IMPORTANT RULE, CHECKED MECHANICALLY:
+  every non-refusal `answer` string MUST contain the literal token
+  "[file — heading]" (with the em-dash "—", copied verbatim from the block
+  header) INSIDE the answer text, at the point where that fact is used. This
+  applies no matter how short or how long the answer is -- a one-sentence
+  answer needs the bracket exactly as much as a five-paragraph one. Listing
+  the source in `required_sources` is NOT enough by itself and does not
+  substitute for it. Every single example below has one; match that, every
+  time. A "none" refusal has no citation and that is correct -- do not invent
+  one for a refusal.
 * The example questions shown above in QUESTION STYLE are STYLE illustrations
   from an unrelated fictitious project. Reusing any of them, verbatim or
   reworded, is a defect. Every question must be about entities/files/behaviour
@@ -182,20 +192,19 @@ IMPORTANT, READ CAREFULLY:
   and answer it, don't default to a refusal. If an item says answerable=none,
   the blocks do NOT contain it -- refuse and say what would be needed, don't
   guess.
-* CITATION FORMAT -- checked mechanically, answers that fail it are discarded:
-  the `answer` string itself MUST contain the literal token
-  "[file — heading]" (with the em-dash "—", copied verbatim from the block
-  header) inline, at the point where that fact is used. Listing the source in
-  `required_sources` is NOT enough by itself. A "none" refusal has no citation
-  and that is correct -- do not invent one.
+* The WORKED EXAMPLES below are about a DIFFERENT, fictitious project
+  ("billing.md", webhooks). They show the shape of a good answer only.
+  Copying their questions, answers, or billing/webhook content -- verbatim or
+  reworded -- into your own output is a defect, exactly like reusing a
+  QUESTION STYLE example. Every example you write must be built from the
+  actual documentation blocks given to you below, never from these.
 
-WORKED EXAMPLE (fictitious project, for format only):
+WORKED EXAMPLES (fictitious project, for format only -- never copy their content):
   Blocks given:
     [billing.md — Retry policy]
     Failed webhook deliveries are retried 3 times with exponential backoff
     starting at 30s, then marked dead-lettered.
-  Plan item: answerable=full, category=configuration
-  Good output for that item:
+  Plan item 1: answerable=full, category=configuration -- a short direct answer:
     {
       "question": "quante volte viene ritentata una webhook fallita?",
       "answer": "Una webhook fallita viene ritentata 3 volte con backoff "
@@ -206,6 +215,28 @@ WORKED EXAMPLE (fictitious project, for format only):
       "answerable": "full",
       "required_sources": ["billing.md#Retry policy"],
       "facts": ["retried 3 times", "backoff starts at 30s", "dead-lettered after retries"],
+      "unsupported_claims": []
+    }
+  Plan item 2: answerable=full, category=how_it_works -- a longer, explanatory
+  answer (the ANSWER SHAPE rule); notice the bracket is still there, inside
+  the explanation, not just tacked on at the end:
+    {
+      "question": "perché una webhook fallita non viene ritentata all'infinito?",
+      "answer": "Il retry è limitato a 3 tentativi con backoff esponenziale "
+        "a partire da 30s [billing.md — Retry policy]. Il backoff esiste per "
+        "non sommergere l'endpoint di destinazione con richieste ravvicinate "
+        "quando sta già fallendo; il limite di 3 tentativi esiste perché "
+        "oltre quella soglia un fallimento ripetuto è quasi certamente "
+        "permanente (endpoint spento, credenziali scadute), non transitorio, "
+        "quindi continuare a ritentare sprecherebbe solo risorse. Per chi "
+        "integra una webhook, questo significa che dopo il terzo fallimento "
+        "il messaggio finisce in dead-letter [billing.md — Retry policy] e "
+        "va gestito manualmente, non aspettato.",
+      "category": "how_it_works",
+      "difficulty": "medium",
+      "answerable": "full",
+      "required_sources": ["billing.md#Retry policy"],
+      "facts": ["max 3 retries", "exponential backoff from 30s", "dead-lettered after limit", "manual handling needed after dead-letter"],
       "unsupported_claims": []
     }
 """

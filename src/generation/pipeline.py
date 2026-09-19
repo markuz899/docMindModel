@@ -37,12 +37,15 @@ from src.generation.prompts import (
 from src.generation.teacher import parse_teacher_output
 from src.prompt import render_context
 
-# Categories usable for answerable questions, with bug_investigation weighted up:
-# it is DocMind's primary use case, so the dataset should over-represent it.
+# Categories usable for answerable questions, with bug_investigation and
+# extension_guidance weighted up: "diagnose this bug" and "how do I build /
+# change this, following the pattern" are DocMind's two primary use cases, so
+# the dataset should over-represent them.
 ANSWERABLE_CATEGORIES = (
     "how_it_works", "api", "api", "service", "dependency", "architecture",
     "database", "data_flow", "configuration", "integration", "error_handling",
     "bug_investigation", "bug_investigation", "bug_investigation", "multi_source",
+    "extension_guidance", "extension_guidance", "extension_guidance",
 )
 
 

@@ -11,7 +11,7 @@ CATEGORIES = (
     "how_it_works", "api", "service", "dependency", "architecture", "database",
     "data_flow", "configuration", "integration", "error_handling",
     "bug_investigation", "multi_source", "partially_answerable", "unanswerable",
-    "contradictory_context",
+    "contradictory_context", "extension_guidance",
 )
 
 ANSWERABILITY = ("full", "partial", "none")
@@ -95,9 +95,32 @@ benchmark phrases them. Mix registers across the batch:
     l'utente sbagliato"
   * impact questions: "se cambio UserService cosa rischio di rompere?"
   * vague but understandable: "questa roba del rinnovo dove viene gestita?"
+  * work-ticket phrasing, for "extension_guidance": "mi hanno assegnato \
+    questo ticket: possiamo cambiare l'endpoint del servizio di notifiche? \
+    come lo implemento?" or "review chiede di esporre anche lo stato pending, \
+    dove lo aggiungo?"
 Include endpoints, class names, error codes, acronyms and identifiers as a \
 developer would write them. A small typo or missing accent is fine and welcome. \
 Do not make every question the same length or the same shape.
+
+CATEGORY NOTE — "extension_guidance". The question asks how to build, add or \
+change something that does NOT exist yet in the blocks (a new endpoint, a new \
+field, a behaviour change), or is phrased as a work ticket / code review \
+comment the developer must act on. The blocks will not describe the requested \
+feature itself — they describe the pattern, layering, naming convention or \
+rule it must follow. Your job is to extract that pattern and apply it \
+explicitly, step by step, to the requested change. Do not refuse just because \
+the specific feature is absent: the documented pattern being present is what \
+makes this answerable (usually "full", or "partial" if the pattern only \
+covers part of the flow, e.g. the controller layer but not how errors \
+propagate). Clearly separate what the architecture dictates (layers to touch, \
+order of calls, naming/response conventions) from what is the developer's own \
+design decision (the exact new route path, field name, table). Never invent a \
+concrete identifier that is not in the blocks — describe the missing part \
+generically ("a new controller method on X", "a repository call analogous to \
+Y") instead of naming it. A bare refusal ("this is not documented") is WRONG \
+for this category whenever a reusable pattern is present in the blocks, even \
+if the exact feature is new.
 
 ANSWERABILITY. You will be told which mix to produce. Honour it exactly:
   * "full"    — the blocks fully answer the question.

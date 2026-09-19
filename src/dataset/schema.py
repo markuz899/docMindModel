@@ -39,6 +39,7 @@ class Category(str, Enum):
     PARTIALLY_ANSWERABLE = "partially_answerable"
     UNANSWERABLE = "unanswerable"
     CONTRADICTORY_CONTEXT = "contradictory_context"
+    EXTENSION_GUIDANCE = "extension_guidance"
 
     # --- legacy spellings, v1 demo dataset ---
     ROUTE = "route"

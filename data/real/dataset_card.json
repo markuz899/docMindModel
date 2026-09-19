@@ -1,8 +1,10 @@
 {
-  "dataset_version": "2.0.0",
-  "built_on": "2026-09-17",
+  "dataset_version": "5.0.0",
+  "built_on": "2026-09-19",
   "sources": [
-    "artifacts/corpus/real-dataset.jsonl"
+    "artifacts/corpus/real-dataset.jsonl",
+    "artifacts/corpus/real-dataset-v3.jsonl",
+    "artifacts/corpus/real-dataset-v5.jsonl"
   ],
   "split_policy": {
     "train": 0.8,
@@ -32,165 +34,169 @@
   "rejected_by_quality_gate": 0,
   "reserved_for_manual_benchmark": 0,
   "totals": {
-    "count": 1134,
+    "count": 1924,
     "by_answerability": {
-      "full": 807,
-      "partial": 122,
-      "none": 205
+      "full": 1456,
+      "partial": 144,
+      "none": 324
     },
     "by_category": {
-      "unanswerable": 203,
-      "contradictory_context": 139,
-      "bug_investigation": 136,
-      "partially_answerable": 104,
-      "api": 89,
-      "how_it_works": 59,
-      "error_handling": 54,
-      "service": 48,
-      "dependency": 46,
-      "configuration": 45,
-      "integration": 44,
-      "multi_source": 44,
-      "database": 42,
-      "architecture": 41,
-      "data_flow": 40
+      "unanswerable": 302,
+      "contradictory_context": 217,
+      "bug_investigation": 187,
+      "configuration": 167,
+      "api": 161,
+      "partially_answerable": 122,
+      "how_it_works": 121,
+      "error_handling": 93,
+      "architecture": 81,
+      "data_flow": 81,
+      "integration": 79,
+      "database": 76,
+      "service": 75,
+      "dependency": 72,
+      "multi_source": 68,
+      "extension_guidance": 22
     },
     "by_project": {
-      "odysseus": 227,
-      "homehub": 317,
-      "botforge": 148,
-      "iad-emission-manager-fastify": 123,
-      "nightly-doc-worker": 140,
-      "nltAi": 115,
-      "logAi": 42,
-      "afu-builder": 22
+      "odysseus": 359,
+      "homehub": 529,
+      "botforge": 229,
+      "iad-emission-manager-fastify": 195,
+      "nightly-doc-worker": 273,
+      "nltAi": 228,
+      "logAi": 73,
+      "afu-builder": 38
     },
-    "with_distractors": 418,
-    "avg_sources": 4.57,
-    "avg_answer_chars": 333,
+    "with_distractors": 661,
+    "avg_sources": 4.49,
+    "avg_answer_chars": 341,
     "teachers": {
       "codex": 892,
       "claude": 140,
-      "selfhosted": 102
+      "selfhosted": 892
     }
   },
   "splits": {
     "train": {
-      "count": 848,
+      "count": 1438,
       "by_answerability": {
-        "full": 597,
-        "partial": 92,
-        "none": 159
+        "none": 243,
+        "full": 1092,
+        "partial": 103
       },
       "by_category": {
-        "unanswerable": 158,
-        "bug_investigation": 106,
-        "contradictory_context": 104,
-        "partially_answerable": 83,
-        "api": 65,
-        "how_it_works": 43,
-        "error_handling": 41,
-        "service": 36,
-        "configuration": 36,
-        "dependency": 33,
-        "multi_source": 29,
-        "integration": 29,
-        "data_flow": 29,
-        "database": 28,
-        "architecture": 28
+        "unanswerable": 225,
+        "contradictory_context": 157,
+        "configuration": 147,
+        "bug_investigation": 141,
+        "api": 117,
+        "how_it_works": 89,
+        "partially_answerable": 88,
+        "error_handling": 64,
+        "service": 60,
+        "architecture": 60,
+        "database": 58,
+        "dependency": 57,
+        "data_flow": 54,
+        "integration": 53,
+        "multi_source": 51,
+        "extension_guidance": 17
       },
       "by_project": {
-        "botforge": 138,
-        "homehub": 271,
-        "iad-emission-manager-fastify": 105,
-        "odysseus": 206,
-        "nightly-doc-worker": 128
+        "botforge": 197,
+        "homehub": 471,
+        "odysseus": 320,
+        "nightly-doc-worker": 246,
+        "nltAi": 204
       },
-      "with_distractors": 311,
-      "avg_sources": 4.5,
-      "avg_answer_chars": 332,
+      "with_distractors": 515,
+      "avg_sources": 4.55,
+      "avg_answer_chars": 343,
       "teachers": {
-        "codex": 670,
-        "claude": 101,
-        "selfhosted": 77
+        "codex": 660,
+        "selfhosted": 670,
+        "claude": 108
       }
     },
     "validation": {
-      "count": 107,
+      "count": 180,
       "by_answerability": {
-        "full": 73,
-        "none": 20,
-        "partial": 14
+        "full": 133,
+        "none": 32,
+        "partial": 15
       },
       "by_category": {
-        "unanswerable": 19,
-        "contradictory_context": 18,
-        "bug_investigation": 12,
-        "partially_answerable": 8,
-        "integration": 7,
-        "api": 6,
-        "data_flow": 6,
-        "dependency": 5,
-        "how_it_works": 5,
-        "multi_source": 4,
-        "error_handling": 4,
-        "service": 4,
-        "configuration": 4,
-        "architecture": 4,
-        "database": 1
+        "unanswerable": 29,
+        "bug_investigation": 18,
+        "contradictory_context": 15,
+        "api": 15,
+        "how_it_works": 14,
+        "error_handling": 12,
+        "partially_answerable": 12,
+        "dependency": 10,
+        "architecture": 10,
+        "multi_source": 9,
+        "service": 9,
+        "configuration": 9,
+        "database": 8,
+        "integration": 5,
+        "data_flow": 4,
+        "extension_guidance": 1
       },
       "by_project": {
-        "odysseus": 21,
-        "homehub": 46,
-        "nightly-doc-worker": 12,
-        "iad-emission-manager-fastify": 18,
-        "botforge": 10
+        "homehub": 58,
+        "botforge": 32,
+        "odysseus": 39,
+        "nightly-doc-worker": 27,
+        "nltAi": 24
       },
-      "with_distractors": 38,
-      "avg_sources": 4.42,
-      "avg_answer_chars": 366,
+      "with_distractors": 62,
+      "avg_sources": 4.43,
+      "avg_answer_chars": 341,
       "teachers": {
-        "codex": 85,
-        "claude": 15,
-        "selfhosted": 7
+        "codex": 84,
+        "selfhosted": 78,
+        "claude": 18
       }
     },
     "test": {
-      "count": 179,
+      "count": 306,
       "by_answerability": {
-        "full": 137,
-        "none": 26,
-        "partial": 16
+        "none": 49,
+        "full": 231,
+        "partial": 26
       },
       "by_category": {
-        "unanswerable": 26,
-        "api": 18,
-        "bug_investigation": 18,
-        "contradictory_context": 17,
-        "database": 13,
-        "partially_answerable": 13,
-        "multi_source": 11,
-        "how_it_works": 11,
-        "error_handling": 9,
-        "architecture": 9,
-        "service": 8,
-        "dependency": 8,
-        "integration": 8,
-        "data_flow": 5,
-        "configuration": 5
+        "unanswerable": 48,
+        "contradictory_context": 45,
+        "api": 29,
+        "bug_investigation": 28,
+        "data_flow": 23,
+        "partially_answerable": 22,
+        "integration": 21,
+        "how_it_works": 18,
+        "error_handling": 17,
+        "configuration": 11,
+        "architecture": 11,
+        "database": 10,
+        "multi_source": 8,
+        "service": 6,
+        "dependency": 5,
+        "extension_guidance": 4
       },
       "by_project": {
-        "logAi": 42,
-        "nltAi": 115,
-        "afu-builder": 22
+        "iad-emission-manager-fastify": 195,
+        "logAi": 73,
+        "afu-builder": 38
       },
-      "with_distractors": 69,
-      "avg_sources": 4.98,
-      "avg_answer_chars": 319,
+      "with_distractors": 84,
+      "avg_sources": 4.26,
+      "avg_answer_chars": 333,
       "teachers": {
-        "codex": 137,
-        "selfhosted": 18,
-        "claude": 24
+        "claude": 14,
+        "codex": 148,
+        "selfhosted": 144
       }
     }
   },

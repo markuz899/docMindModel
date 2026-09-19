@@ -1,0 +1,49 @@
+# v5 training on the k3s cluster's GTX 1080 (8 GB VRAM, Pascal -- no bf16).
+#
+# Same validated hyperparameters as training.v2-cluster.yaml (used for v2 and
+# v4). v5 changes only the data: real-dataset-v5.jsonl regenerates the whole
+# real corpus under prompt_version=4, which adds the "extension_guidance"
+# category (how do I build/change X, following the documented pattern -- incl.
+# ticket-style questions) and fixes the docMindApp prompt-template mismatch
+# that was silently degrading v4's answers at inference time (see
+# NEXT_SESSION.md). Precision regime and schedule are unchanged from the
+# validated probe: fp16/bf16 forced off on Pascal, float32 throughout.
+
+output_dir: artifacts/v5-real/adapter
+run_name: docmind-qwen2.5-0.5b-lora-v5-real-cluster
+seed: 42
+
+num_train_epochs: 3
+max_steps: -1
+learning_rate: 5.0e-5
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+weight_decay: 0.01
+max_grad_norm: 1.0
+optim: adamw_torch
+
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+gradient_accumulation_steps: 8
+gradient_checkpointing: true
+
+bf16: false
+fp16: false
+
+logging_steps: 2
+eval_strategy: epoch
+save_strategy: epoch
+save_total_limit: 2
+load_best_model_at_end: true
+metric_for_best_model: eval_loss
+greater_is_better: false
+resume_from_checkpoint: null
+
+completion_only_loss: true
+dataloader_num_workers: 0
+report_to: []
+
+skip_overlong: true
+max_seq_length: 2048   # keeps 96% of the real examples
+
+empty_cache_steps: 1

@@ -92,10 +92,19 @@ def is_useful(row: dict) -> bool:
         return False
     if not row.get("citation_precision"):
         return False
+    f1_ok = (row.get("token_f1") or 0.0) >= USEFUL_F1_FLOOR
     key_facts = row.get("key_fact_recall")
     if key_facts is not None and row.get("_has_key_facts"):
-        return key_facts >= USEFUL_KEY_FACT_FLOOR
-    return (row.get("token_f1") or 0.0) >= USEFUL_F1_FLOOR
+        # `facts` entries from a real teacher are free-text clauses (often in a
+        # different language/phrasing than the answer), not the short exact
+        # keywords `must_include` was hand-written as -- keyword_recall's
+        # substring match then reads 0.0 for answers that are actually
+        # correct, just reworded. OR with the f1 floor instead of gating on
+        # key_fact_recall alone: still strict when the key-fact match works
+        # (the demo dataset's must_include case), but does not zero out every
+        # real-data example the substring check happens to miss.
+        return key_facts >= USEFUL_KEY_FACT_FLOOR or f1_ok
+    return f1_ok
 
 
 def confusion_matrix(rows: list[dict]) -> ConfusionMatrix:
